@@ -1,9 +1,14 @@
-[target.'cfg(all(target_arch = "arm", target_os = "none"))']
-runner = "probe-rs run --chip STM32F407VG"
+# This file was automatically generated.
+
+[target.thumbv7em-none-eabi]
+runner = 'probe-rs run --chip STM32F407IEHx'
 
 [build]
-target = "thumbv7em-none-eabihf"
+target = "thumbv7em-none-eabi"
 
 [env]
-DEFMT_LOG = "debug"
-DEFMT_RTT_BUFFER_SIZE = "1024"
+DEFMT_LOG = "trace"
+
+[unstable]
+build-std = ["core"]
+build-std-features = ["panic_immediate_abort"]
