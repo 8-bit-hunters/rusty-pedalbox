@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<descriptor xmlns="http://digimend.sourceforge.net"
+            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+            xsi:schemaLocation="http://digimend.sourceforge.net hidrd.xsd">
+<usage_page>desktop</usage_page>
+<usage>desktop_joystick</usage>
+<COLLECTION type="application">
+    <usage_page>desktop</usage_page>
+    <usage>desktop_x</usage>
+    <usage>desktop_y</usage>
+    <usage>desktop_z</usage>
+    <logical_minimum>-127</logical_minimum>
+    <logical_maximum>127</logical_maximum>
+    <report_size>8</report_size>
+    <report_count>3</report_count>
+    <input>
+        <variable/>
+        <absolute/>
+    </input>
+    <!-- 1 Button -->
+    <usage_page>button<!-- Button (09h) --></usage_page>
+    <usage_minimum>01</usage_minimum>
+    <usage_maximum>01</usage_maximum>
+    <logical_minimum>0</logical_minimum>
+    <logical_maximum>1</logical_maximum>
+    <report_size>1</report_size>
+    <report_count>1</report_count>
+    <input>
+        <variable/>
+        <absolute/>
+    </input>
+    <!-- Padding for alignment -->
+    <report_size>7</report_size>
+    <report_count>1</report_count>
+    <input>
+        <constant/>
+    </input>
+</COLLECTION>
+</descriptor>
