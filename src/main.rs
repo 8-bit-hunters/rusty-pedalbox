@@ -132,8 +132,8 @@ async fn hid_task(
 async fn input_monitor_x(mut adc: Adc<'static, ADC1>, mut pin: Peri<'static, PA7>) {
     loop {
         let adc_value = adc.blocking_read(&mut pin);
-        let scaled_value =
-            ((adc_value as i32 * (i8::MAX as i32 - i8::MIN as i32) / 3200) + i8::MIN as i32) as i8;
+        let scaled_value = ((adc_value as i32 * (i16::MAX as i32 - i16::MIN as i32) / 3200)
+            + i16::MIN as i32) as i16;
         info!("Potentiometer X:\t{}\t{}", adc_value, scaled_value);
         AXIS_X.store(scaled_value, Ordering::Relaxed);
         Timer::after(Duration::from_millis(10)).await;
@@ -144,8 +144,8 @@ async fn input_monitor_x(mut adc: Adc<'static, ADC1>, mut pin: Peri<'static, PA7
 async fn input_monitor_z(mut adc: Adc<'static, ADC2>, mut pin: Peri<'static, PA5>) {
     loop {
         let adc_value = adc.blocking_read(&mut pin);
-        let scaled_value =
-            ((adc_value as i32 * (i8::MAX as i32 - i8::MIN as i32) / 3200) + i8::MIN as i32) as i8;
+        let scaled_value = ((adc_value as i32 * (i16::MAX as i32 - i16::MIN as i32) / 3200)
+            + i16::MIN as i32) as i16;
         info!("Potentiometer Z:\t{}\t{}", adc_value, scaled_value);
         AXIS_Z.store(scaled_value, Ordering::Relaxed);
         Timer::after(Duration::from_millis(10)).await;
@@ -157,8 +157,9 @@ async fn input_monitor_y(mut load_cell: Hx711<Delay, Input<'static>, Output<'sta
     loop {
         match load_cell.retrieve() {
             Ok(v) => {
-                let scaled_value = ((v as i64 * i8::MAX as i64) / 250_000)
-                    .clamp(i8::MIN as i64, i8::MAX as i64) as i8;
+                let scaled_value = ((v as i64 * i16::MAX as i64) / 250_000)
+                    .clamp(i16::MIN as i64, i16::MAX as i64)
+                    as i16;
                 info!("Load cell Y:\t{}\t{}", v, scaled_value);
                 AXIS_Y.store(scaled_value, Ordering::Relaxed);
             }

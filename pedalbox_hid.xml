@@ -9,9 +9,9 @@
     <usage>desktop_x</usage>
     <usage>desktop_y</usage>
     <usage>desktop_z</usage>
-    <logical_minimum>-127</logical_minimum>
-    <logical_maximum>127</logical_maximum>
-    <report_size>8</report_size>
+    <logical_minimum>-32768</logical_minimum>
+    <logical_maximum>32767</logical_maximum>
+    <report_size>16</report_size>
     <report_count>3</report_count>
     <input>
         <variable/>

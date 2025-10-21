@@ -1,4 +1,4 @@
-use core::sync::atomic::AtomicI8;
+use core::sync::atomic::AtomicI16;
 use embassy_stm32::rcc::{
     mux, AHBPrescaler, APBPrescaler, Hse, HseMode, Pll, PllMul, PllPDiv, PllPreDiv, PllQDiv,
     PllSource, Sysclk,
@@ -10,41 +10,41 @@ use static_cell::StaticCell;
 
 #[repr(C, packed)]
 pub struct PedalboxReport {
-    pub x: i8,
-    pub y: i8,
-    pub z: i8,
+    pub x: i16,
+    pub y: i16,
+    pub z: i16,
     pub buttons: u8,
 }
 
-pub static AXIS_X: AtomicI8 = AtomicI8::new(0);
-pub static AXIS_Y: AtomicI8 = AtomicI8::new(0);
-pub static AXIS_Z: AtomicI8 = AtomicI8::new(0);
+pub static AXIS_X: AtomicI16 = AtomicI16::new(0);
+pub static AXIS_Y: AtomicI16 = AtomicI16::new(0);
+pub static AXIS_Z: AtomicI16 = AtomicI16::new(0);
 
 const PEDALBOX_REPORT_DESCRIPTOR: &[u8] = &[
-    0x05, 0x01, /*  Usage Page (Desktop),       */
-    0x09, 0x04, /*  Usage (Joystick),           */
-    0xA1, 0x01, /*  Collection (Application),   */
-    0x05, 0x01, /*      Usage Page (Desktop),   */
-    0x09, 0x30, /*      Usage (X),              */
-    0x09, 0x31, /*      Usage (Y),              */
-    0x09, 0x32, /*      Usage (Z),              */
-    0x15, 0x81, /*      Logical Minimum (-127), */
-    0x25, 0x7F, /*      Logical Maximum (127),  */
-    0x75, 0x08, /*      Report Size (8),        */
-    0x95, 0x03, /*      Report Count (3),       */
-    0x81, 0x02, /*      Input (Variable),       */
-    0x05, 0x09, /*      Usage Page (Button),    */
-    0x19, 0x01, /*      Usage Minimum (01h),    */
-    0x29, 0x01, /*      Usage Maximum (01h),    */
-    0x14, /*      Logical Minimum (0),    */
-    0x25, 0x01, /*      Logical Maximum (1),    */
-    0x75, 0x01, /*      Report Size (1),        */
-    0x95, 0x01, /*      Report Count (1),       */
-    0x81, 0x02, /*      Input (Variable),       */
-    0x75, 0x07, /*      Report Size (7),        */
-    0x95, 0x01, /*      Report Count (1),       */
-    0x81, 0x01, /*      Input (Constant),       */
-    0xC0, /*  End Collection              */
+    0x05, 0x01, /*  Usage Page (Desktop),           */
+    0x09, 0x04, /*  Usage (Joystick),               */
+    0xA1, 0x01, /*  Collection (Application),       */
+    0x05, 0x01, /*      Usage Page (Desktop),       */
+    0x09, 0x30, /*      Usage (X),                  */
+    0x09, 0x31, /*      Usage (Y),                  */
+    0x09, 0x32, /*      Usage (Z),                  */
+    0x16, 0x00, 0x80, /*      Logical Minimum (-32768),   */
+    0x26, 0xFF, 0x7F, /*      Logical Maximum (32767),    */
+    0x75, 0x10, /*      Report Size (16),           */
+    0x95, 0x03, /*      Report Count (3),           */
+    0x81, 0x02, /*      Input (Variable),           */
+    0x05, 0x09, /*      Usage Page (Button),        */
+    0x19, 0x01, /*      Usage Minimum (01h),        */
+    0x29, 0x01, /*      Usage Maximum (01h),        */
+    0x14, /*      Logical Minimum (0),        */
+    0x25, 0x01, /*      Logical Maximum (1),        */
+    0x75, 0x01, /*      Report Size (1),            */
+    0x95, 0x01, /*      Report Count (1),           */
+    0x81, 0x02, /*      Input (Variable),           */
+    0x75, 0x07, /*      Report Size (7),            */
+    0x95, 0x01, /*      Report Count (1),           */
+    0x81, 0x01, /*      Input (Constant),           */
+    0xC0, /*  End Collection                  */
 ];
 
 pub static EP_OUT_BUFFER: StaticCell<[u8; 256]> = StaticCell::new();
