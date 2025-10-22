@@ -922,6 +922,7 @@ dependencies = [
  "embassy-sync",
  "embassy-time",
  "embassy-usb",
+ "embedded-hal 0.2.7",
  "hx711",
  "panic-halt",
  "panic-probe",
