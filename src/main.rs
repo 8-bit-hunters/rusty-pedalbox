@@ -25,8 +25,10 @@ use embassy_usb::class::hid;
 use embassy_usb::class::hid::HidWriter;
 use embassy_usb::Builder;
 use hx711::Hx711;
-use rusty_pedalbox::fmt::{info, warn};
-use rusty_pedalbox::prelude::{AnalogMonitor, AnalogMonitorConfig, Mapping};
+use rusty_pedalbox::fmt::warn;
+use rusty_pedalbox::prelude::{
+    AnalogMonitor, AnalogMonitorConfig, LoadCellMonitor, LoadCellMonitorConfig,
+};
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -58,7 +60,7 @@ async fn main(spawner: Spawner) {
         control_buf,
     );
 
-    let load_cell_y = Hx711::new(Delay, board.brake_data, board.brake_clock)
+    let load_cell = Hx711::new(Delay, board.brake_data, board.brake_clock)
         .expect("Failed to create HX711 driver");
 
     let hid_writer = HidWriter::<_, 8>::new(
@@ -82,6 +84,16 @@ async fn main(spawner: Spawner) {
         },
     );
 
+    let brake_pedal = LoadCellMonitor::new(
+        "BRAKE_PEDAL",
+        LoadCellMonitorConfig {
+            range_min: 0,
+            range_max: 230_000,
+            load_cell,
+            output_channel: &AXIS_Y,
+        },
+    );
+
     let clutch_pedal = AnalogMonitor::new(
         "CLUTCH_PEDAL",
         AnalogMonitorConfig {
@@ -100,7 +112,7 @@ async fn main(spawner: Spawner) {
         .spawn(input_monitor_z(clutch_pedal))
         .expect("Failed to spawn input monitor Z");
     spawner
-        .spawn(input_monitor_y(load_cell_y))
+        .spawn(input_monitor_y(brake_pedal))
         .expect("Failed to spawn input monitor Y");
 
     let usb = builder.build();
@@ -164,18 +176,11 @@ async fn input_monitor_z(mut monitor: AnalogMonitor<Adc<'static, ADC2>, Peri<'st
 }
 
 #[embassy_executor::task]
-async fn input_monitor_y(mut load_cell: Hx711<Delay, Input<'static>, Output<'static>>) {
+async fn input_monitor_y(
+    mut monitor: LoadCellMonitor<Hx711<Delay, Input<'static>, Output<'static>>, i32>,
+) {
     loop {
-        match load_cell.retrieve() {
-            Ok(raw) => {
-                let scaled = raw.map_to_i16(0, 230_000);
-                info!("Load cell Y:\t{}\t{}", raw, scaled);
-                AXIS_Y.store(scaled, Ordering::Relaxed);
-            }
-            Err(_) => {
-                warn!("couldn't retrieve data")
-            }
-        }
+        monitor.run();
         Timer::after(Duration::from_millis(10)).await;
     }
 }
