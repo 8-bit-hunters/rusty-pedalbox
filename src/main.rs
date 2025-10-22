@@ -26,10 +26,9 @@ use embassy_usb::class::hid::HidWriter;
 use embassy_usb::Builder;
 use hx711::Hx711;
 use rusty_pedalbox::fmt::warn;
-use rusty_pedalbox::prelude::{
+use rusty_pedalbox::io_monitors::{
     AnalogMonitor, AnalogMonitorConfig, LoadCellMonitor, LoadCellMonitorConfig,
 };
-
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(Config::usb_configuration());

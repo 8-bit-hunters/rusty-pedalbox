@@ -14,14 +14,12 @@ use embedded_hal::digital::v2::OutputPin;
 use hx711::Hx711;
 
 pub mod fmt;
-mod io_monitor;
+pub mod io_monitors;
 
 pub mod prelude {
     pub use super::fmt::*;
-    pub use super::io_monitor::{
-        AnalogMonitor, AnalogMonitorConfig, LoadCellMonitor, LoadCellMonitorConfig,
-    };
     pub use super::{AnalogRead, Mapping};
+    pub use crate::io_monitors::*;
 }
 
 pub trait LoadCell {
