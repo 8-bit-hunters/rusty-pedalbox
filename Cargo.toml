@@ -44,7 +44,6 @@ incremental = true
 defmt = ["dep:defmt"]
 defmt-rtt = ["dep:defmt-rtt"]
 panic-probe = ["dep:panic-probe"]
-default = ["debug"]
 debug = [
     "defmt",
     "defmt-rtt",
