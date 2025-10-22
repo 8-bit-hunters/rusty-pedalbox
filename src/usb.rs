@@ -1,3 +1,4 @@
+use bytemuck::{Pod, Zeroable};
 use core::sync::atomic::AtomicI16;
 use embassy_stm32::rcc::{
     mux, AHBPrescaler, APBPrescaler, Hse, HseMode, Pll, PllMul, PllPDiv, PllPreDiv, PllQDiv,
@@ -9,6 +10,7 @@ use embassy_usb::class::hid;
 use static_cell::StaticCell;
 
 #[repr(C, packed)]
+#[derive(Clone, Copy, Pod, Zeroable)]
 pub struct PedalboxReport {
     pub x: i16,
     pub y: i16,
