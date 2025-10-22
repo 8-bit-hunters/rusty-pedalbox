@@ -2,18 +2,15 @@
 #![no_main]
 
 mod board;
-mod fmt;
 mod usb;
 
 use core::sync::atomic::Ordering;
-use defmt::warn;
 #[cfg(not(feature = "defmt"))]
 use panic_halt as _;
 #[cfg(feature = "defmt")]
 use {defmt_rtt as _, panic_probe as _};
 
 use crate::board::Board;
-use crate::fmt::info;
 use crate::usb::{
     PedalboxConfiguration, PedalboxReport, UsbConfiguration, AXIS_X, AXIS_Y, AXIS_Z, BOS_DESC,
     CONFIG_DESC, CONTROL_BUF, EP_OUT_BUFFER, HID_STATE, MSOS_DESC,
@@ -28,7 +25,8 @@ use embassy_usb::class::hid;
 use embassy_usb::class::hid::HidWriter;
 use embassy_usb::Builder;
 use hx711::Hx711;
-use rusty_pedalbox::Mapping;
+use rusty_pedalbox::fmt::{info, warn};
+use rusty_pedalbox::prelude::{AnalogMonitor, AnalogMonitorConfig, Mapping};
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -60,8 +58,6 @@ async fn main(spawner: Spawner) {
         control_buf,
     );
 
-    let adc_x = Adc::new(board.gas_adc);
-    let adc_z = Adc::new(board.clutch_adc);
     let load_cell_y = Hx711::new(Delay, board.brake_data, board.brake_clock)
         .expect("Failed to create HX711 driver");
 
@@ -75,11 +71,33 @@ async fn main(spawner: Spawner) {
         .spawn(hid_task(hid_writer))
         .expect("Failed to spawn hid task");
 
+    let gas_pedal = AnalogMonitor::new(
+        "GAS_PEDAL",
+        AnalogMonitorConfig {
+            range_min: 1820,
+            range_max: 3100,
+            adc: Adc::new(board.gas_adc),
+            pin: board.gas_potentiometer,
+            output_channel: &AXIS_X,
+        },
+    );
+
+    let clutch_pedal = AnalogMonitor::new(
+        "CLUTCH_PEDAL",
+        AnalogMonitorConfig {
+            range_min: u16::MIN,
+            range_max: u16::MAX,
+            adc: Adc::new(board.clutch_adc),
+            pin: board.clutch_potentiometer,
+            output_channel: &AXIS_Z,
+        },
+    );
+
     spawner
-        .spawn(input_monitor_x(adc_x, board.gas_potentiometer))
+        .spawn(input_monitor_x(gas_pedal))
         .expect("Failed to spawn input monitor X");
     spawner
-        .spawn(input_monitor_z(adc_z, board.clutch_potentiometer))
+        .spawn(input_monitor_z(clutch_pedal))
         .expect("Failed to spawn input monitor Z");
     spawner
         .spawn(input_monitor_y(load_cell_y))
@@ -130,23 +148,17 @@ async fn hid_task(
 }
 
 #[embassy_executor::task]
-async fn input_monitor_x(mut adc: Adc<'static, ADC1>, mut pin: Peri<'static, PA7>) {
+async fn input_monitor_x(mut monitor: AnalogMonitor<Adc<'static, ADC1>, Peri<'static, PA7>, u16>) {
     loop {
-        let raw = adc.blocking_read(&mut pin);
-        let scaled = raw.map_to_i16(1820, 3100);
-        info!("Potentiometer X:\t{}\t{}", raw, scaled);
-        AXIS_X.store(scaled, Ordering::Relaxed);
+        monitor.run();
         Timer::after(Duration::from_millis(5)).await;
     }
 }
 
 #[embassy_executor::task]
-async fn input_monitor_z(mut adc: Adc<'static, ADC2>, mut pin: Peri<'static, PA5>) {
+async fn input_monitor_z(mut monitor: AnalogMonitor<Adc<'static, ADC2>, Peri<'static, PA5>, u16>) {
     loop {
-        let raw = adc.blocking_read(&mut pin);
-        let scaled = raw.map_to_i16(1820, 3100);
-        info!("Potentiometer Z:\t{}\t{}", raw, scaled);
-        AXIS_Z.store(scaled, Ordering::Relaxed);
+        monitor.run();
         Timer::after(Duration::from_millis(5)).await;
     }
 }

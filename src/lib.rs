@@ -1,5 +1,19 @@
 #![cfg_attr(not(test), no_std)]
 
+#[cfg(test)]
+extern crate alloc;
+#[cfg(target_arch = "arm")]
+use embassy_stm32::adc::Adc;
+
+pub mod fmt;
+mod io_monitor;
+
+pub mod prelude {
+    pub use super::fmt::*;
+    pub use super::io_monitor::{AnalogMonitor, AnalogMonitorConfig};
+    pub use super::{AnalogRead, Mapping};
+}
+
 pub trait Mapping
 where
     Self: Copy + Into<i64>,
@@ -23,6 +37,25 @@ where
 impl Mapping for u16 {}
 
 impl Mapping for i32 {}
+
+pub trait AnalogRead<Pin> {
+    type ReturnType;
+
+    fn read(&mut self, pin: &mut Pin) -> Self::ReturnType;
+}
+
+#[cfg(target_arch = "arm")]
+impl<Pin, T> AnalogRead<Pin> for Adc<'_, T>
+where
+    Pin: embassy_stm32::adc::AdcChannel<T>,
+    T: embassy_stm32::adc::Instance,
+{
+    type ReturnType = u16;
+
+    fn read(&mut self, pin: &mut Pin) -> Self::ReturnType {
+        self.blocking_read(pin)
+    }
+}
 
 #[cfg(test)]
 mod test_mapping {
