@@ -129,24 +129,14 @@ async fn hid_task(
     mut writer: HidWriter<'static, embassy_stm32::usb::Driver<'static, USB_OTG_FS>, 8>,
 ) {
     loop {
-        let x = AXIS_X.load(Ordering::Relaxed);
-        let y = AXIS_Y.load(Ordering::Relaxed);
-        let z = AXIS_Z.load(Ordering::Relaxed);
-
         let report = PedalboxReport {
-            x,
-            y,
-            z,
+            x: AXIS_X.load(Ordering::Relaxed),
+            y: AXIS_Y.load(Ordering::Relaxed),
+            z: AXIS_Z.load(Ordering::Relaxed),
             buttons: 0,
         };
 
-        let bytes = unsafe {
-            core::slice::from_raw_parts(
-                &report as *const PedalboxReport as *const u8,
-                core::mem::size_of::<PedalboxReport>(),
-            )
-        };
-
+        let bytes = bytemuck::bytes_of(&report);
         if let Err(e) = writer.write(bytes).await {
             warn!("HID write failed: {:?}", e);
         }
