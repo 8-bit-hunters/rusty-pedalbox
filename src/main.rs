@@ -60,18 +60,19 @@ async fn main(spawner: Spawner) {
         control_buf,
     );
 
-    let load_cell = Hx711::new(Delay, board.brake_data, board.brake_clock)
-        .expect("Failed to create HX711 driver");
-
     let hid_writer = HidWriter::<_, 8>::new(
         &mut builder,
         hid_state,
         hid::Config::pedalbox_configuration(),
     );
-
     spawner
         .spawn(hid_task(hid_writer))
         .expect("Failed to spawn hid task");
+
+    let usb = builder.build();
+    spawner
+        .spawn(usb_task(usb))
+        .expect("Failed to spawn usb task");
 
     let gas_pedal = AnalogMonitor::new(
         "GAS_PEDAL",
@@ -83,16 +84,23 @@ async fn main(spawner: Spawner) {
             output_channel: &AXIS_X,
         },
     );
+    spawner
+        .spawn(input_monitor_x(gas_pedal))
+        .expect("Failed to spawn input monitor X");
 
     let brake_pedal = LoadCellMonitor::new(
         "BRAKE_PEDAL",
         LoadCellMonitorConfig {
             range_min: 0,
             range_max: 230_000,
-            load_cell,
+            load_cell: Hx711::new(Delay, board.brake_data, board.brake_clock)
+                .expect("Failed to create HX711 driver"),
             output_channel: &AXIS_Y,
         },
     );
+    spawner
+        .spawn(input_monitor_y(brake_pedal))
+        .expect("Failed to spawn input monitor Y");
 
     let clutch_pedal = AnalogMonitor::new(
         "CLUTCH_PEDAL",
@@ -104,21 +112,9 @@ async fn main(spawner: Spawner) {
             output_channel: &AXIS_Z,
         },
     );
-
-    spawner
-        .spawn(input_monitor_x(gas_pedal))
-        .expect("Failed to spawn input monitor X");
     spawner
         .spawn(input_monitor_z(clutch_pedal))
         .expect("Failed to spawn input monitor Z");
-    spawner
-        .spawn(input_monitor_y(brake_pedal))
-        .expect("Failed to spawn input monitor Y");
-
-    let usb = builder.build();
-    spawner
-        .spawn(usb_task(usb))
-        .expect("Failed to spawn usb task")
 }
 
 #[embassy_executor::task]
