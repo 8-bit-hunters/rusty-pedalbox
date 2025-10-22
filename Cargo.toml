@@ -58,3 +58,6 @@ debug = [
 
 [dev-dependencies]
 rstest = "0.26.1"
+
+[dependencies]
+embedded-hal = { version = "0.2.7" }
