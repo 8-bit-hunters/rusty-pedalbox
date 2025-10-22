@@ -36,3 +36,4 @@ $ hidrd-convert -i xml -o code pedalbox_hid.xml
 ```
 3. Copy the output values to the `PEDALBOX_REPORT_DESCRIPTOR` in the `usb.rs` file.
 4. If needed then change the `PedalboxReport` structure.
+hae;lajf\
