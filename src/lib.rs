@@ -4,14 +4,48 @@
 extern crate alloc;
 #[cfg(target_arch = "arm")]
 use embassy_stm32::adc::Adc;
+#[cfg(target_arch = "arm")]
+use embedded_hal::blocking::delay::DelayUs;
+#[cfg(target_arch = "arm")]
+use embedded_hal::digital::v2::InputPin;
+#[cfg(target_arch = "arm")]
+use embedded_hal::digital::v2::OutputPin;
+#[cfg(target_arch = "arm")]
+use hx711::Hx711;
 
 pub mod fmt;
 mod io_monitor;
 
 pub mod prelude {
     pub use super::fmt::*;
-    pub use super::io_monitor::{AnalogMonitor, AnalogMonitorConfig};
+    pub use super::io_monitor::{
+        AnalogMonitor, AnalogMonitorConfig, LoadCellMonitor, LoadCellMonitorConfig,
+    };
     pub use super::{AnalogRead, Mapping};
+}
+
+pub trait LoadCell {
+    type ReturnType;
+    type Error;
+    fn read(&mut self) -> Result<Self::ReturnType, Self::Error>;
+}
+
+#[cfg(target_arch = "arm")]
+impl<D, IN, OUT, EIN, EOUT> LoadCell for Hx711<D, IN, OUT>
+where
+    D: DelayUs<u32>,
+    IN: InputPin<Error = EIN>,
+    OUT: OutputPin<Error = EOUT>,
+{
+    type ReturnType = i32;
+    type Error = ();
+
+    fn read(&mut self) -> Result<Self::ReturnType, Self::Error> {
+        match self.retrieve() {
+            Ok(v) => Ok(v),
+            Err(_) => Err(()),
+        }
+    }
 }
 
 pub trait Mapping
@@ -34,9 +68,7 @@ where
     }
 }
 
-impl Mapping for u16 {}
-
-impl Mapping for i32 {}
+impl<T> Mapping for T where T: Copy + Into<i64> {}
 
 pub trait AnalogRead<Pin> {
     type ReturnType;
