@@ -50,64 +50,84 @@ impl Int for i32 {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct ContractionConfig<T: Int> {
+    contraction_rate: T,
+    min_idle: u32,
+    max_idle: u32,
+    contraction_delay: u32,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct ExpansionConfig<T: Int> {
+    threshold: T,
+    expansion_rate: T,
+}
+
 pub struct AdaptiveRange<T: Int> {
     pub min: T,
     pub max: T,
     dirty: bool,
-    threshold: T,
-    learn_rate: Option<T>,
-    decay_rate: Option<T>,
+    expansion_config: Option<ExpansionConfig<T>>,
+    contraction_config: Option<ContractionConfig<T>>,
 }
 
 impl<T: Int> AdaptiveRange<T> {
     pub fn update(&mut self, value: T) {
-        if self.decay_rate.is_some() {
-            self.decay(value);
+        if self.contraction_config.is_some() {
+            self.contract(value);
         }
-        if self.learn_rate.is_some() {
+        if self.expansion_config.is_some() {
             self.expand(value);
         }
     }
 
     fn expand(&mut self, value: T) {
-        let expand_minimum = value < self.min.saturating_sub(self.threshold);
-        if expand_minimum {
-            let diff = self.min - value;
-            self.min -= self.expand_step(diff);
-        }
+        if let Some(expansion_config) = self.expansion_config {
+            let expand_minimum = value < self.min.saturating_sub(expansion_config.threshold);
+            if expand_minimum {
+                let diff = self.min - value;
+                self.min -= self.expand_step(diff);
+            }
 
-        let expand_maximum = value > self.max.saturating_add(self.threshold);
-        if expand_maximum {
-            let diff = value - self.max;
-            self.max += self.expand_step(diff);
+            let expand_maximum = value > self.max.saturating_add(expansion_config.threshold);
+            if expand_maximum {
+                let diff = value - self.max;
+                self.max += self.expand_step(diff);
+            }
         }
     }
 
-    fn decay(&mut self, value: T) {
-        let decay_minimum = value > self.min.saturating_add(self.threshold);
-        if decay_minimum {
-            let diff = value - self.min;
-            self.min += self.decay_step(diff);
-        }
+    fn contract(&mut self, value: T) {
+        if let Some(contraction_config) = self.contraction_config {
+            let contract_minimum =
+                value >= self.min.saturating_add(contraction_config.contraction_rate);
+            if contract_minimum {
+                let diff = value - self.min;
+                self.min += self.contract_step(diff);
+            }
 
-        let decay_maximum = value < self.max.saturating_sub(self.threshold);
-        if decay_maximum {
-            let diff = self.max - value;
-            self.max -= self.decay_step(diff);
+            let contract_maximum =
+                value <= self.max.saturating_sub(contraction_config.contraction_rate);
+            if contract_maximum {
+                let diff = self.max - value;
+                self.max -= self.contract_step(diff);
+            }
         }
     }
 
     fn expand_step(&self, diff: T) -> T {
-        if let Some(learning_rate) = self.learn_rate {
-            (diff + learning_rate - T::one()) / learning_rate
+        if let Some(expansion_config) = self.expansion_config {
+            let expansion_rate = expansion_config.expansion_rate;
+            (diff + expansion_rate - T::one()) / expansion_rate
         } else {
             T::zero()
         }
     }
 
-    fn decay_step(&self, diff: T) -> T {
-        if let Some(decay_rate) = self.decay_rate {
-            diff / decay_rate
+    fn contract_step(&self, diff: T) -> T {
+        if let Some(contraction_config) = self.contraction_config {
+            diff / contraction_config.contraction_rate
         } else {
             T::zero()
         }
@@ -120,24 +140,28 @@ mod tests {
 
     const NUMBER_OF_READINGS: u16 = u16::MAX;
 
-    mod expanding_calibration_minimum {
+    mod range_expansion_for_minimum {
         use super::*;
+        use crate::calibration::ExpansionConfig;
 
         #[test]
         fn when_reading_is_more_then_the_threshold_below_the_calibration_minimum() {
             // Given
             let initial_minimum = 100;
             let initial_maximum = 200;
+            let threshold = 8;
             let mut calibration = AdaptiveRange {
                 min: initial_minimum,
                 max: initial_maximum,
                 dirty: false,
-                threshold: 8,
-                learn_rate: Some(16),
-                decay_rate: None,
+                expansion_config: Some(ExpansionConfig {
+                    threshold,
+                    expansion_rate: 16,
+                }),
+                contraction_config: None,
             };
 
-            let actual_min = initial_minimum - calibration.threshold - 1;
+            let actual_min = initial_minimum - threshold - 1;
 
             // When
             for _ in 0..NUMBER_OF_READINGS {
@@ -164,16 +188,19 @@ mod tests {
         fn when_reading_is_less_then_the_threshold_below_the_calibration_minimum() {
             // Given
             let initial_minimum = 100;
+            let threshold = 8;
             let mut calibration = AdaptiveRange {
                 min: initial_minimum,
                 max: 200,
                 dirty: false,
-                threshold: 8,
-                learn_rate: Some(16),
-                decay_rate: None,
+                expansion_config: Some(ExpansionConfig {
+                    threshold,
+                    expansion_rate: 16,
+                }),
+                contraction_config: None,
             };
 
-            let actual_min = initial_minimum - calibration.threshold + 1;
+            let actual_min = initial_minimum - threshold + 1;
 
             // When
             for _ in 0..NUMBER_OF_READINGS {
@@ -188,16 +215,19 @@ mod tests {
         fn when_reading_is_on_the_threshold_and_below_the_calibration_minimum() {
             // Given
             let initial_minimum = 100;
+            let threshold = 8;
             let mut calibration = AdaptiveRange {
                 min: initial_minimum,
                 max: 200,
                 dirty: false,
-                threshold: 8,
-                learn_rate: Some(16),
-                decay_rate: None,
+                expansion_config: Some(ExpansionConfig {
+                    threshold,
+                    expansion_rate: 16,
+                }),
+                contraction_config: None,
             };
 
-            let actual_min = initial_minimum - calibration.threshold;
+            let actual_min = initial_minimum - threshold;
 
             // When
             for _ in 0..NUMBER_OF_READINGS {
@@ -209,24 +239,28 @@ mod tests {
         }
     }
 
-    mod expanding_calibration_maximum {
+    mod range_expansion_for_maximum {
         use super::*;
+        use crate::calibration::ExpansionConfig;
 
         #[test]
         fn when_reading_is_more_then_the_threshold_above_the_calibration_maximum() {
             // Given
             let initial_minimum = 100;
             let initial_maximum = 200;
+            let threshold = 8;
             let mut calibration = AdaptiveRange {
                 min: initial_minimum,
                 max: initial_maximum,
                 dirty: false,
-                threshold: 8,
-                learn_rate: Some(16),
-                decay_rate: None,
+                expansion_config: Some(ExpansionConfig {
+                    threshold,
+                    expansion_rate: 16,
+                }),
+                contraction_config: None,
             };
 
-            let actual_max = initial_maximum + calibration.threshold + 1;
+            let actual_max = initial_maximum + threshold + 1;
 
             // When
             for _ in 0..NUMBER_OF_READINGS {
@@ -253,16 +287,19 @@ mod tests {
         fn when_reading_is_less_then_the_threshold_above_the_calibration_maximum() {
             // Given
             let initial_maximum = 200;
+            let threshold = 8;
             let mut calibration = AdaptiveRange {
                 min: 100,
                 max: initial_maximum,
                 dirty: false,
-                threshold: 8,
-                learn_rate: Some(16),
-                decay_rate: None,
+                expansion_config: Some(ExpansionConfig {
+                    threshold,
+                    expansion_rate: 16,
+                }),
+                contraction_config: None,
             };
 
-            let actual_max = initial_maximum + calibration.threshold - 1;
+            let actual_max = initial_maximum + threshold - 1;
 
             // When
             for _ in 0..NUMBER_OF_READINGS {
@@ -277,16 +314,19 @@ mod tests {
         fn when_reading_is_on_the_threshold_and_above_the_calibration_minimum() {
             // Given
             let initial_maximum = 200;
+            let threshold = 8;
             let mut calibration = AdaptiveRange {
                 min: 100,
                 max: initial_maximum,
                 dirty: false,
-                threshold: 8,
-                learn_rate: Some(16),
-                decay_rate: None,
+                expansion_config: Some(ExpansionConfig {
+                    threshold,
+                    expansion_rate: 16,
+                }),
+                contraction_config: None,
             };
 
-            let actual_max = initial_maximum + calibration.threshold;
+            let actual_max = initial_maximum + threshold;
 
             // When
             for _ in 0..NUMBER_OF_READINGS {
@@ -298,25 +338,30 @@ mod tests {
         }
     }
 
-    mod decay_calibration_minimum {
+    mod range_contraction_for_minimum {
         use super::*;
+        use crate::calibration::{ContractionConfig, ExpansionConfig};
 
         #[test]
-        fn when_reading_is_more_then_the_decay_rate_above_the_calibration_minimum() {
+        fn when_reading_is_more_then_the_contract_rate_above_the_calibration_minimum() {
             // Given
             let initial_minimum = 100;
             let initial_maximum = 200;
-            let decay_rate = 1024;
+            let contraction_rate = 1024;
             let mut calibration = AdaptiveRange {
                 min: initial_minimum,
                 max: initial_maximum,
                 dirty: false,
-                threshold: 8,
-                learn_rate: None,
-                decay_rate: Some(decay_rate),
+                expansion_config: None,
+                contraction_config: Some(ContractionConfig {
+                    contraction_rate,
+                    min_idle: 0,
+                    max_idle: 0,
+                    contraction_delay: 0,
+                }),
             };
 
-            let actual_min = initial_minimum + decay_rate;
+            let actual_min = initial_minimum + contraction_rate;
 
             // When
             for _ in 0..NUMBER_OF_READINGS {
@@ -340,20 +385,24 @@ mod tests {
         }
 
         #[test]
-        fn when_reading_is_less_then_the_decay_rate_above_the_calibration_minimum() {
+        fn when_reading_is_less_then_the_contract_rate_above_the_calibration_minimum() {
             // Given
             let initial_minimum = 100;
-            let decay_rate = 1024;
+            let contraction_rate = 1024;
             let mut calibration = AdaptiveRange {
                 min: initial_minimum,
                 max: 200,
                 dirty: false,
-                threshold: 8,
-                learn_rate: None,
-                decay_rate: Some(decay_rate),
+                expansion_config: None,
+                contraction_config: Some(ContractionConfig {
+                    contraction_rate,
+                    min_idle: 0,
+                    max_idle: 0,
+                    contraction_delay: 0,
+                }),
             };
 
-            let actual_min = initial_minimum + decay_rate - 1;
+            let actual_min = initial_minimum + contraction_rate - 1;
 
             // When
             for _ in 0..NUMBER_OF_READINGS {
@@ -365,25 +414,30 @@ mod tests {
         }
     }
 
-    mod decay_calibration_maximum {
+    mod range_contraction_for_maximum {
         use super::*;
+        use crate::calibration::ContractionConfig;
 
         #[test]
-        fn when_reading_is_more_then_the_decay_rate_below_the_calibration_maximum() {
+        fn when_reading_is_more_then_the_contract_rate_below_the_calibration_maximum() {
             // Given
             let initial_minimum = 100;
             let initial_maximum = 200;
-            let decay_rate = 1024;
+            let contraction_rate = 1024;
             let mut calibration = AdaptiveRange {
                 min: initial_minimum,
                 max: initial_maximum,
                 dirty: false,
-                threshold: 8,
-                learn_rate: None,
-                decay_rate: Some(decay_rate),
+                expansion_config: None,
+                contraction_config: Some(ContractionConfig {
+                    contraction_rate,
+                    min_idle: 0,
+                    max_idle: 0,
+                    contraction_delay: 0,
+                }),
             };
 
-            let actual_max = initial_maximum - decay_rate;
+            let actual_max = initial_maximum - contraction_rate;
 
             // When
             for _ in 0..NUMBER_OF_READINGS {
@@ -407,20 +461,24 @@ mod tests {
         }
 
         #[test]
-        fn when_reading_is_less_then_the_decay_rate_below_the_calibration_maximum() {
+        fn when_reading_is_less_then_the_contract_rate_below_the_calibration_maximum() {
             // Given
             let initial_maximum = 200;
-            let decay_rate = 1024;
+            let contraction_rate = 1024;
             let mut calibration = AdaptiveRange {
                 min: 100,
                 max: initial_maximum,
                 dirty: false,
-                threshold: 8,
-                learn_rate: None,
-                decay_rate: Some(decay_rate),
+                expansion_config: None,
+                contraction_config: Some(ContractionConfig {
+                    contraction_rate,
+                    min_idle: 0,
+                    max_idle: 0,
+                    contraction_delay: 0,
+                }),
             };
 
-            let actual_min = initial_maximum - decay_rate + 1;
+            let actual_min = initial_maximum - contraction_rate + 1;
 
             // When
             for _ in 0..NUMBER_OF_READINGS {
