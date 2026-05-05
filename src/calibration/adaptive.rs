@@ -1,54 +1,4 @@
-use core::ops::{Add, AddAssign, Div, Sub, SubAssign};
-
-pub trait Int:
-    Copy
-    + PartialOrd
-    + Add<Output = Self>
-    + Sub<Output = Self>
-    + Div<Output = Self>
-    + AddAssign
-    + SubAssign
-{
-    fn zero() -> Self;
-    fn one() -> Self;
-
-    fn saturating_sub(self, rhs: Self) -> Self;
-    fn saturating_add(self, rhs: Self) -> Self;
-}
-
-impl Int for u16 {
-    fn zero() -> Self {
-        0
-    }
-    fn one() -> Self {
-        1
-    }
-
-    fn saturating_sub(self, rhs: Self) -> Self {
-        self.saturating_sub(rhs)
-    }
-
-    fn saturating_add(self, rhs: Self) -> Self {
-        self.saturating_add(rhs)
-    }
-}
-
-impl Int for i32 {
-    fn zero() -> Self {
-        0
-    }
-    fn one() -> Self {
-        1
-    }
-
-    fn saturating_sub(self, rhs: Self) -> Self {
-        self.saturating_sub(rhs)
-    }
-
-    fn saturating_add(self, rhs: Self) -> Self {
-        self.saturating_add(rhs)
-    }
-}
+use crate::calibration::{Int, Range};
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct ContractionConfig<T: Int> {
@@ -64,10 +14,10 @@ pub struct ExpansionConfig<T: Int> {
 
 #[derive(Debug, Default)]
 pub struct AdaptiveRange<T: Int> {
-    pub min: T,
-    pub max: T,
-    pub expansion_config: Option<ExpansionConfig<T>>,
-    pub contraction_config: Option<ContractionConfig<T>>,
+    min: T,
+    max: T,
+    expansion_config: Option<ExpansionConfig<T>>,
+    contraction_config: Option<ContractionConfig<T>>,
     dirty: bool,
     min_idle: u32,
     max_idle: u32,
@@ -119,16 +69,6 @@ impl<T: Int> AdaptiveRange<T> {
             dirty: self.dirty,
             min_idle: self.min_idle,
             max_idle: self.max_idle,
-        }
-    }
-
-    pub fn update(&mut self, value: T) {
-        if self.contraction_config.is_some() {
-            self.track_activity(value);
-            self.contract(value);
-        }
-        if self.expansion_config.is_some() {
-            self.expand(value);
         }
     }
 
@@ -204,15 +144,34 @@ impl<T: Int> AdaptiveRange<T> {
     }
 }
 
+impl<T: Int> Range<T> for AdaptiveRange<T> {
+    fn get_min(&self) -> T {
+        self.min
+    }
+
+    fn get_max(&self) -> T {
+        self.max
+    }
+
+    fn update(&mut self, value: T) {
+        if self.contraction_config.is_some() {
+            self.track_activity(value);
+            self.contract(value);
+        }
+        if self.expansion_config.is_some() {
+            self.expand(value);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::calibration::AdaptiveRange;
+    use crate::calibration::adaptive::{AdaptiveRange, ContractionConfig, ExpansionConfig};
+    use crate::calibration::Range;
 
     const NUMBER_OF_READINGS: u16 = u16::MAX;
-
     mod range_expansion_for_minimum {
         use super::*;
-        use crate::calibration::ExpansionConfig;
 
         #[test]
         fn when_reading_is_more_then_the_threshold_below_the_calibration_minimum() {
@@ -300,7 +259,6 @@ mod tests {
 
     mod range_expansion_for_maximum {
         use super::*;
-        use crate::calibration::ExpansionConfig;
 
         #[test]
         fn when_reading_is_more_then_the_threshold_above_the_calibration_maximum() {
@@ -388,7 +346,6 @@ mod tests {
 
     mod range_contraction_for_minimum {
         use super::*;
-        use crate::calibration::ContractionConfig;
 
         #[test]
         fn when_reading_is_more_then_the_contract_rate_above_the_calibration_minimum() {
@@ -453,7 +410,6 @@ mod tests {
 
     mod range_contraction_for_maximum {
         use super::*;
-        use crate::calibration::ContractionConfig;
 
         #[test]
         fn when_reading_is_more_then_the_contract_rate_below_the_calibration_maximum() {
@@ -517,7 +473,6 @@ mod tests {
 
     mod range_contraction_delay {
         use super::*;
-        use crate::calibration::ContractionConfig;
 
         #[test]
         fn when_contraction_delay_is_used_on_max() {
