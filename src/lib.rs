@@ -13,7 +13,7 @@ use embedded_hal::digital::v2::OutputPin;
 #[cfg(target_arch = "arm")]
 use hx711::Hx711;
 
-mod calibration;
+pub mod calibration;
 pub mod fmt;
 pub mod io_monitors;
 
