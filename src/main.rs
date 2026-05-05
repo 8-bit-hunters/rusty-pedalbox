@@ -25,10 +25,12 @@ use embassy_usb::class::hid;
 use embassy_usb::class::hid::HidWriter;
 use embassy_usb::Builder;
 use hx711::Hx711;
+use rusty_pedalbox::calibration::fixed::FixedRange;
 use rusty_pedalbox::fmt::warn;
 use rusty_pedalbox::io_monitors::{
     AnalogMonitor, AnalogMonitorConfig, LoadCellMonitor, LoadCellMonitorConfig,
 };
+
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(Config::usb_configuration());
@@ -73,11 +75,11 @@ async fn main(spawner: Spawner) {
         .spawn(usb_task(usb))
         .expect("Failed to spawn usb task");
 
+    let gas_pedal_range = FixedRange::default().min(2644).max(3700);
     let gas_pedal = AnalogMonitor::new(
         "GAS_PEDAL",
         AnalogMonitorConfig {
-            range_min: 1820,
-            range_max: 3100,
+            range: gas_pedal_range,
             adc: Adc::new(board.gas_adc),
             pin: board.gas_potentiometer,
             output_channel: &AXIS_X,
@@ -87,11 +89,11 @@ async fn main(spawner: Spawner) {
         .spawn(input_monitor_x(gas_pedal))
         .expect("Failed to spawn input monitor X");
 
+    let brake_pedal_range = FixedRange::default().min(0).max(230_000);
     let brake_pedal = LoadCellMonitor::new(
         "BRAKE_PEDAL",
         LoadCellMonitorConfig {
-            range_min: 0,
-            range_max: 230_000,
+            range: brake_pedal_range,
             load_cell: Hx711::new(Delay, board.brake_data, board.brake_clock)
                 .expect("Failed to create HX711 driver"),
             output_channel: &AXIS_Y,
@@ -101,11 +103,11 @@ async fn main(spawner: Spawner) {
         .spawn(input_monitor_y(brake_pedal))
         .expect("Failed to spawn input monitor Y");
 
+    let clutch_pedal_range = FixedRange::default().min(265).max(1700);
     let clutch_pedal = AnalogMonitor::new(
         "CLUTCH_PEDAL",
         AnalogMonitorConfig {
-            range_min: u16::MIN,
-            range_max: u16::MAX,
+            range: clutch_pedal_range,
             adc: Adc::new(board.clutch_adc),
             pin: board.clutch_potentiometer,
             output_channel: &AXIS_Z,
@@ -145,7 +147,9 @@ async fn hid_task(
 }
 
 #[embassy_executor::task]
-async fn input_monitor_x(mut monitor: AnalogMonitor<Adc<'static, ADC1>, Peri<'static, PA7>, u16>) {
+async fn input_monitor_x(
+    mut monitor: AnalogMonitor<Adc<'static, ADC1>, Peri<'static, PA7>, FixedRange<u16>, u16>,
+) {
     loop {
         monitor.run();
         Timer::after(Duration::from_millis(5)).await;
@@ -153,7 +157,9 @@ async fn input_monitor_x(mut monitor: AnalogMonitor<Adc<'static, ADC1>, Peri<'st
 }
 
 #[embassy_executor::task]
-async fn input_monitor_z(mut monitor: AnalogMonitor<Adc<'static, ADC2>, Peri<'static, PA5>, u16>) {
+async fn input_monitor_z(
+    mut monitor: AnalogMonitor<Adc<'static, ADC2>, Peri<'static, PA5>, FixedRange<u16>, u16>,
+) {
     loop {
         monitor.run();
         Timer::after(Duration::from_millis(5)).await;
@@ -162,7 +168,11 @@ async fn input_monitor_z(mut monitor: AnalogMonitor<Adc<'static, ADC2>, Peri<'st
 
 #[embassy_executor::task]
 async fn input_monitor_y(
-    mut monitor: LoadCellMonitor<Hx711<Delay, Input<'static>, Output<'static>>, i32>,
+    mut monitor: LoadCellMonitor<
+        Hx711<Delay, Input<'static>, Output<'static>>,
+        FixedRange<i32>,
+        i32,
+    >,
 ) {
     loop {
         monitor.run();
