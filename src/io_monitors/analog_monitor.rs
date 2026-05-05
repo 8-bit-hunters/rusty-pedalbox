@@ -1,58 +1,62 @@
+use crate::calibration::{Int, Range};
 use crate::fmt::debug;
 #[cfg(target_arch = "x86_64")]
 use crate::fmt::defmt::Format;
 use crate::{AnalogRead, Mapping};
 use core::sync::atomic::{AtomicI16, Ordering};
-#[cfg(target_arch = "arm")]
+#[cfg(all(target_arch = "arm", feature = "defmt"))]
 use defmt::Format;
 
-pub struct AnalogMonitorConfig<Adc, Pin, T>
+pub struct AnalogMonitorConfig<Adc, Pin, R, T>
 where
     Adc: AnalogRead<Pin, ReturnType = T>,
-    T: Mapping,
+    R: Range<T>,
+    T: Mapping + Int,
 {
-    pub range_min: T,
-    pub range_max: T,
+    pub range: R,
     pub adc: Adc,
     pub pin: Pin,
     pub output_channel: &'static AtomicI16,
 }
 
-pub struct AnalogMonitor<Adc, Pin, T>
+pub struct AnalogMonitor<Adc, Pin, R, T>
 where
     Adc: AnalogRead<Pin, ReturnType = T>,
-    T: Mapping,
+    R: Range<T>,
+    T: Mapping + Int,
 {
     name: &'static str,
-    range_min: T,
-    range_max: T,
+    range: R,
     adc: Adc,
     pin: Pin,
     output_channel: &'static AtomicI16,
 }
 
-impl<Adc, Pin, T> AnalogMonitor<Adc, Pin, T>
+impl<Adc, Pin, R, T> AnalogMonitor<Adc, Pin, R, T>
 where
     Adc: AnalogRead<Pin, ReturnType = T>,
-    T: Mapping + Format,
+    R: Range<T>,
+    T: Mapping + Format + Int,
 {
     pub fn new(
         name: &'static str,
-        config: AnalogMonitorConfig<Adc, Pin, T>,
-    ) -> AnalogMonitor<Adc, Pin, T> {
+        config: AnalogMonitorConfig<Adc, Pin, R, T>,
+    ) -> AnalogMonitor<Adc, Pin, R, T> {
         Self {
             name,
             adc: config.adc,
             pin: config.pin,
-            range_min: config.range_min,
-            range_max: config.range_max,
+            range: config.range,
             output_channel: config.output_channel,
         }
     }
 
     pub fn run(&mut self) {
         let raw_reading = self.adc.read(&mut self.pin);
-        let mapped_reading = raw_reading.map_to_i16(self.range_min, self.range_max);
+
+        self.range.update(raw_reading);
+
+        let mapped_reading = raw_reading.map_to_i16(self.range.get_min(), self.range.get_max());
         self.output_channel.store(mapped_reading, Ordering::Relaxed);
         debug!(
             "Analog Monitor[{}]: Raw -> {}\tMapped -> {}",
@@ -63,6 +67,8 @@ where
 
 #[cfg(test)]
 mod analog_monitor_testing {
+    use crate::calibration::fixed::FixedRange;
+    use crate::calibration::Range;
     use crate::io_monitors::analog_monitor::{AnalogMonitor, AnalogMonitorConfig};
     use crate::AnalogRead;
     use alloc::boxed::Box;
@@ -93,10 +99,10 @@ mod analog_monitor_testing {
         let pin = MockPin { value: 100 };
         let range_min: u16 = 0;
         let range_max: u16 = 200;
+        let range = FixedRange::default().min(range_min).max(range_max);
 
         let config = AnalogMonitorConfig {
-            range_min,
-            range_max,
+            range,
             adc: adc.clone(),
             pin: pin.clone(),
             output_channel: Box::leak(Box::new(AtomicI16::default())),
@@ -109,8 +115,8 @@ mod analog_monitor_testing {
         assert_eq!(result.name, name);
         assert_eq!(result.adc, adc);
         assert_eq!(result.pin, pin);
-        assert_eq!(result.range_min, range_min);
-        assert_eq!(result.range_max, range_max);
+        assert_eq!(result.range.get_min(), range_min);
+        assert_eq!(result.range.get_max(), range_max);
     }
 
     #[rstest]
@@ -130,11 +136,12 @@ mod analog_monitor_testing {
         let adc = MockAdc {};
         let pin = MockPin { value };
         let output = Box::leak(Box::new(AtomicI16::default()));
+        let range = FixedRange::default().min(minimum).max(maximum);
+
         let mut monitor = AnalogMonitor::new(
             "test",
             AnalogMonitorConfig {
-                range_min: minimum,
-                range_max: maximum,
+                range,
                 adc,
                 pin,
                 output_channel: output,

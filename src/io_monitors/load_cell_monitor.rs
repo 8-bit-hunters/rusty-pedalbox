@@ -1,44 +1,48 @@
+use crate::calibration::{Int, Range};
 #[cfg(target_arch = "x86_64")]
 use crate::fmt::defmt::Format;
 use crate::fmt::{debug, warn};
 use crate::{LoadCell, Mapping};
 use core::sync::atomic::{AtomicI16, Ordering};
-#[cfg(target_arch = "arm")]
+#[cfg(all(target_arch = "arm", feature = "defmt"))]
 use defmt::Format;
 
-pub struct LoadCellMonitorConfig<L, T>
+pub struct LoadCellMonitorConfig<L, R, T>
 where
     L: LoadCell<ReturnType = T>,
-    T: Mapping,
+    R: Range<T>,
+    T: Mapping + Int,
 {
-    pub range_min: T,
-    pub range_max: T,
+    pub range: R,
     pub load_cell: L,
     pub output_channel: &'static AtomicI16,
 }
 
-pub struct LoadCellMonitor<L, T>
+pub struct LoadCellMonitor<L, R, T>
 where
     L: LoadCell<ReturnType = T>,
-    T: Mapping,
+    R: Range<T>,
+    T: Mapping + Int,
 {
     name: &'static str,
-    range_min: T,
-    range_max: T,
+    range: R,
     load_cell: L,
     output_channel: &'static AtomicI16,
 }
 
-impl<L, T> LoadCellMonitor<L, T>
+impl<L, R, T> LoadCellMonitor<L, R, T>
 where
     L: LoadCell<ReturnType = T>,
-    T: Mapping + Format,
+    R: Range<T>,
+    T: Mapping + Format + Int,
 {
-    pub fn new(name: &'static str, config: LoadCellMonitorConfig<L, T>) -> LoadCellMonitor<L, T> {
+    pub fn new(
+        name: &'static str,
+        config: LoadCellMonitorConfig<L, R, T>,
+    ) -> LoadCellMonitor<L, R, T> {
         Self {
             name,
-            range_min: config.range_min,
-            range_max: config.range_max,
+            range: config.range,
             load_cell: config.load_cell,
             output_channel: config.output_channel,
         }
@@ -47,7 +51,10 @@ where
     pub fn run(&mut self) {
         match self.load_cell.read() {
             Ok(raw_reading) => {
-                let mapped_reading = raw_reading.map_to_i16(self.range_min, self.range_max);
+                self.range.update(raw_reading);
+
+                let mapped_reading =
+                    raw_reading.map_to_i16(self.range.get_min(), self.range.get_max());
                 self.output_channel.store(mapped_reading, Ordering::Relaxed);
                 debug!(
                     "Analog Monitor[{}]: Raw -> {}\tMapped -> {}",
@@ -63,6 +70,8 @@ where
 
 #[cfg(test)]
 mod load_cell_monitor_testing {
+    use crate::calibration::fixed::FixedRange;
+    use crate::calibration::Range;
     use crate::io_monitors::load_cell_monitor::{LoadCellMonitor, LoadCellMonitorConfig};
     use crate::LoadCell;
     use alloc::boxed::Box;
@@ -90,9 +99,9 @@ mod load_cell_monitor_testing {
         let range_min: i32 = 0;
         let range_max: i32 = 200;
         let load_cell = MockLoadCell { value: 100 };
+        let range = FixedRange::default().min(range_min).max(range_max);
         let config = LoadCellMonitorConfig {
-            range_min,
-            range_max,
+            range,
             load_cell,
             output_channel: Box::leak(Box::new(AtomicI16::default())),
         };
@@ -102,8 +111,8 @@ mod load_cell_monitor_testing {
 
         // Then
         assert_eq!(result.name, name);
-        assert_eq!(result.range_min, range_min);
-        assert_eq!(result.range_max, range_max);
+        assert_eq!(result.range.get_min(), range_min);
+        assert_eq!(result.range.get_max(), range_max);
         assert_eq!(result.load_cell, load_cell);
     }
 
@@ -122,11 +131,11 @@ mod load_cell_monitor_testing {
         // Given
         let load_cell = MockLoadCell { value };
         let output = Box::leak(Box::new(AtomicI16::default()));
+        let range = FixedRange::default().min(minimum).max(maximum);
         let mut monitor = LoadCellMonitor::new(
             "test",
             LoadCellMonitorConfig {
-                range_min: minimum,
-                range_max: maximum,
+                range,
                 load_cell,
                 output_channel: output,
             },
