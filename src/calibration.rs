@@ -53,8 +53,6 @@ impl Int for i32 {
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct ContractionConfig<T: Int> {
     contraction_rate: T,
-    min_idle: u32,
-    max_idle: u32,
     contraction_delay: u32,
 }
 
@@ -64,17 +62,69 @@ pub struct ExpansionConfig<T: Int> {
     expansion_rate: T,
 }
 
+#[derive(Debug, Default)]
 pub struct AdaptiveRange<T: Int> {
     pub min: T,
     pub max: T,
+    pub expansion_config: Option<ExpansionConfig<T>>,
+    pub contraction_config: Option<ContractionConfig<T>>,
     dirty: bool,
-    expansion_config: Option<ExpansionConfig<T>>,
-    contraction_config: Option<ContractionConfig<T>>,
+    min_idle: u32,
+    max_idle: u32,
 }
 
 impl<T: Int> AdaptiveRange<T> {
+    pub fn min(self, value: T) -> AdaptiveRange<T> {
+        Self {
+            min: value,
+            max: self.max,
+            expansion_config: self.expansion_config,
+            contraction_config: self.contraction_config,
+            dirty: self.dirty,
+            min_idle: self.min_idle,
+            max_idle: self.max_idle,
+        }
+    }
+
+    pub fn max(self, value: T) -> AdaptiveRange<T> {
+        Self {
+            min: self.min,
+            max: value,
+            expansion_config: self.expansion_config,
+            contraction_config: self.contraction_config,
+            dirty: self.dirty,
+            min_idle: self.min_idle,
+            max_idle: self.max_idle,
+        }
+    }
+
+    pub fn expansion_config(self, value: ExpansionConfig<T>) -> AdaptiveRange<T> {
+        Self {
+            min: self.min,
+            max: self.max,
+            expansion_config: Some(value),
+            contraction_config: self.contraction_config,
+            dirty: self.dirty,
+            min_idle: self.min_idle,
+            max_idle: self.max_idle,
+        }
+    }
+
+    pub fn contraction_config(self, value: ContractionConfig<T>) -> AdaptiveRange<T> {
+        Self {
+            min: self.min,
+            max: self.max,
+            expansion_config: self.expansion_config,
+            contraction_config: Some(value),
+            dirty: self.dirty,
+            min_idle: self.min_idle,
+            max_idle: self.max_idle,
+        }
+    }
+
     pub fn update(&mut self, value: T) {
         if self.contraction_config.is_some() {
+            self.track_activity(value);
             self.contract(value);
         }
         if self.expansion_config.is_some() {
@@ -100,15 +150,21 @@ impl<T: Int> AdaptiveRange<T> {
 
     fn contract(&mut self, value: T) {
         if let Some(contraction_config) = self.contraction_config {
-            let contract_minimum =
+            let value_is_above_threshold =
                 value >= self.min.saturating_add(contraction_config.contraction_rate);
+            let hitting_min_timed_out = self.min_idle >= contraction_config.contraction_delay;
+
+            let contract_minimum = value_is_above_threshold && hitting_min_timed_out;
             if contract_minimum {
                 let diff = value - self.min;
                 self.min += self.contract_step(diff);
             }
 
-            let contract_maximum =
+            let value_is_above_threshold =
                 value <= self.max.saturating_sub(contraction_config.contraction_rate);
+            let hitting_max_timed_out = self.max_idle >= contraction_config.contraction_delay;
+
+            let contract_maximum = value_is_above_threshold && hitting_max_timed_out;
             if contract_maximum {
                 let diff = self.max - value;
                 self.max -= self.contract_step(diff);
@@ -132,6 +188,20 @@ impl<T: Int> AdaptiveRange<T> {
             T::zero()
         }
     }
+
+    fn track_activity(&mut self, value: T) {
+        if value < self.min {
+            self.min_idle = 0;
+        } else {
+            self.min_idle += 1;
+        }
+
+        if value > self.max {
+            self.max_idle = 0;
+        } else {
+            self.max_idle += 1;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -150,16 +220,13 @@ mod tests {
             let initial_minimum = 100;
             let initial_maximum = 200;
             let threshold = 8;
-            let mut calibration = AdaptiveRange {
-                min: initial_minimum,
-                max: initial_maximum,
-                dirty: false,
-                expansion_config: Some(ExpansionConfig {
+            let mut calibration = AdaptiveRange::default()
+                .min(initial_minimum)
+                .max(initial_maximum)
+                .expansion_config(ExpansionConfig {
                     threshold,
                     expansion_rate: 16,
-                }),
-                contraction_config: None,
-            };
+                });
 
             let actual_min = initial_minimum - threshold - 1;
 
@@ -189,16 +256,12 @@ mod tests {
             // Given
             let initial_minimum = 100;
             let threshold = 8;
-            let mut calibration = AdaptiveRange {
-                min: initial_minimum,
-                max: 200,
-                dirty: false,
-                expansion_config: Some(ExpansionConfig {
+            let mut calibration = AdaptiveRange::default()
+                .min(initial_minimum)
+                .expansion_config(ExpansionConfig {
                     threshold,
                     expansion_rate: 16,
-                }),
-                contraction_config: None,
-            };
+                });
 
             let actual_min = initial_minimum - threshold + 1;
 
@@ -216,16 +279,12 @@ mod tests {
             // Given
             let initial_minimum = 100;
             let threshold = 8;
-            let mut calibration = AdaptiveRange {
-                min: initial_minimum,
-                max: 200,
-                dirty: false,
-                expansion_config: Some(ExpansionConfig {
+            let mut calibration = AdaptiveRange::default()
+                .min(initial_minimum)
+                .expansion_config(ExpansionConfig {
                     threshold,
                     expansion_rate: 16,
-                }),
-                contraction_config: None,
-            };
+                });
 
             let actual_min = initial_minimum - threshold;
 
@@ -249,16 +308,13 @@ mod tests {
             let initial_minimum = 100;
             let initial_maximum = 200;
             let threshold = 8;
-            let mut calibration = AdaptiveRange {
-                min: initial_minimum,
-                max: initial_maximum,
-                dirty: false,
-                expansion_config: Some(ExpansionConfig {
+            let mut calibration = AdaptiveRange::default()
+                .min(initial_minimum)
+                .max(initial_maximum)
+                .expansion_config(ExpansionConfig {
                     threshold,
                     expansion_rate: 16,
-                }),
-                contraction_config: None,
-            };
+                });
 
             let actual_max = initial_maximum + threshold + 1;
 
@@ -288,16 +344,12 @@ mod tests {
             // Given
             let initial_maximum = 200;
             let threshold = 8;
-            let mut calibration = AdaptiveRange {
-                min: 100,
-                max: initial_maximum,
-                dirty: false,
-                expansion_config: Some(ExpansionConfig {
+            let mut calibration = AdaptiveRange::default()
+                .max(initial_maximum)
+                .expansion_config(ExpansionConfig {
                     threshold,
                     expansion_rate: 16,
-                }),
-                contraction_config: None,
-            };
+                });
 
             let actual_max = initial_maximum + threshold - 1;
 
@@ -315,16 +367,12 @@ mod tests {
             // Given
             let initial_maximum = 200;
             let threshold = 8;
-            let mut calibration = AdaptiveRange {
-                min: 100,
-                max: initial_maximum,
-                dirty: false,
-                expansion_config: Some(ExpansionConfig {
+            let mut calibration = AdaptiveRange::default()
+                .max(initial_maximum)
+                .expansion_config(ExpansionConfig {
                     threshold,
                     expansion_rate: 16,
-                }),
-                contraction_config: None,
-            };
+                });
 
             let actual_max = initial_maximum + threshold;
 
@@ -340,7 +388,7 @@ mod tests {
 
     mod range_contraction_for_minimum {
         use super::*;
-        use crate::calibration::{ContractionConfig, ExpansionConfig};
+        use crate::calibration::ContractionConfig;
 
         #[test]
         fn when_reading_is_more_then_the_contract_rate_above_the_calibration_minimum() {
@@ -348,18 +396,13 @@ mod tests {
             let initial_minimum = 100;
             let initial_maximum = 200;
             let contraction_rate = 1024;
-            let mut calibration = AdaptiveRange {
-                min: initial_minimum,
-                max: initial_maximum,
-                dirty: false,
-                expansion_config: None,
-                contraction_config: Some(ContractionConfig {
+            let mut calibration = AdaptiveRange::default()
+                .min(initial_minimum)
+                .max(initial_maximum)
+                .contraction_config(ContractionConfig {
                     contraction_rate,
-                    min_idle: 0,
-                    max_idle: 0,
                     contraction_delay: 0,
-                }),
-            };
+                });
 
             let actual_min = initial_minimum + contraction_rate;
 
@@ -389,18 +432,12 @@ mod tests {
             // Given
             let initial_minimum = 100;
             let contraction_rate = 1024;
-            let mut calibration = AdaptiveRange {
-                min: initial_minimum,
-                max: 200,
-                dirty: false,
-                expansion_config: None,
-                contraction_config: Some(ContractionConfig {
+            let mut calibration = AdaptiveRange::default()
+                .min(initial_minimum)
+                .contraction_config(ContractionConfig {
                     contraction_rate,
-                    min_idle: 0,
-                    max_idle: 0,
                     contraction_delay: 0,
-                }),
-            };
+                });
 
             let actual_min = initial_minimum + contraction_rate - 1;
 
@@ -424,18 +461,12 @@ mod tests {
             let initial_minimum = 100;
             let initial_maximum = 200;
             let contraction_rate = 1024;
-            let mut calibration = AdaptiveRange {
-                min: initial_minimum,
-                max: initial_maximum,
-                dirty: false,
-                expansion_config: None,
-                contraction_config: Some(ContractionConfig {
+            let mut calibration = AdaptiveRange::default()
+                .min(initial_minimum)
+                .contraction_config(ContractionConfig {
                     contraction_rate,
-                    min_idle: 0,
-                    max_idle: 0,
                     contraction_delay: 0,
-                }),
-            };
+                });
 
             let actual_max = initial_maximum - contraction_rate;
 
@@ -465,18 +496,12 @@ mod tests {
             // Given
             let initial_maximum = 200;
             let contraction_rate = 1024;
-            let mut calibration = AdaptiveRange {
-                min: 100,
-                max: initial_maximum,
-                dirty: false,
-                expansion_config: None,
-                contraction_config: Some(ContractionConfig {
+            let mut calibration = AdaptiveRange::default()
+                .max(initial_maximum)
+                .contraction_config(ContractionConfig {
                     contraction_rate,
-                    min_idle: 0,
-                    max_idle: 0,
                     contraction_delay: 0,
-                }),
-            };
+                });
 
             let actual_min = initial_maximum - contraction_rate + 1;
 
@@ -487,6 +512,101 @@ mod tests {
 
             // Then
             assert_eq!(initial_maximum, calibration.max);
+        }
+    }
+
+    mod range_contraction_delay {
+        use super::*;
+        use crate::calibration::ContractionConfig;
+
+        #[test]
+        fn when_contraction_delay_is_used_on_max() {
+            // Given
+            let initial_maximum = 200;
+            let contraction_rate = 1024;
+            let contraction_delay = 200;
+
+            let mut calibration = AdaptiveRange::default()
+                .max(initial_maximum)
+                .contraction_config(ContractionConfig {
+                    contraction_rate,
+                    contraction_delay,
+                });
+
+            let actual_max = initial_maximum - contraction_rate;
+
+            let mut before_delay = None;
+            let mut after_delay = None;
+
+            // When
+            for i in 0..NUMBER_OF_READINGS as usize {
+                if i == (contraction_delay as usize - 1) {
+                    before_delay = Some(calibration.max);
+                }
+
+                if i == (contraction_delay as usize) {
+                    after_delay = Some(calibration.max);
+                }
+
+                calibration.update(actual_max);
+            }
+
+            // Then
+            assert_eq!(before_delay.unwrap(), initial_maximum);
+
+            assert!(
+                after_delay.unwrap() < initial_maximum,
+                "Max did not decay after delay"
+            );
+            assert!(
+                after_delay.unwrap() >= actual_max,
+                "Max decayed below observed value"
+            );
+        }
+
+        #[test]
+        fn when_contraction_delay_is_used_on_min() {
+            // Given
+            let initial_min = 100;
+            let contraction_rate = 1024;
+            let contraction_delay = 200;
+
+            let mut calibration = AdaptiveRange::default()
+                .min(initial_min)
+                .contraction_config(ContractionConfig {
+                    contraction_rate,
+                    contraction_delay,
+                });
+
+            let actual_min = initial_min + contraction_rate;
+
+            let mut before_delay = None;
+            let mut after_delay = None;
+
+            // When
+            for i in 0..NUMBER_OF_READINGS as usize {
+                if i == (contraction_delay as usize - 1) {
+                    before_delay = Some(calibration.min);
+                }
+
+                if i == (contraction_delay as usize) {
+                    after_delay = Some(calibration.min);
+                }
+
+                calibration.update(actual_min);
+            }
+
+            // Then
+            assert_eq!(before_delay.unwrap(), initial_min);
+
+            assert!(
+                after_delay.unwrap() > initial_min,
+                "Min did not decay after delay"
+            );
+            assert!(
+                after_delay.unwrap() <= actual_min,
+                "Min decayed above observed value"
+            );
         }
     }
 }
