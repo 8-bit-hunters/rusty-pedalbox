@@ -2,10 +2,23 @@ use crate::storage::Storage;
 use bytemuck::{bytes_of, Pod, Zeroable};
 use embassy_stm32::flash::{Blocking, Flash};
 
+const FLASH_STORAGE_ADDR: u32 = 128 * 1024;
+const FLASH_STORAGE_SIZE: u32 = 128 * 1024;
+
 pub struct FlashStorage<const N: usize> {
-    pub flash: Flash<'static, Blocking>,
-    pub address: u32,
-    pub page_size: u32,
+    flash: Flash<'static, Blocking>,
+    address: u32,
+    page_size: u32,
+}
+
+impl<const N: usize> FlashStorage<N> {
+    pub fn new(flash: Flash<'static, Blocking>) -> FlashStorage<N> {
+        Self {
+            flash,
+            address: FLASH_STORAGE_ADDR,
+            page_size: FLASH_STORAGE_SIZE,
+        }
+    }
 }
 
 impl<T, const N: usize> Storage<T> for FlashStorage<N>
