@@ -1,4 +1,4 @@
-use crate::calibration::{Int, Range};
+use crate::calibration::{Int, Range, StoredRange};
 
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct FixedRange<T: Int> {
@@ -29,5 +29,19 @@ impl<T: Int> Range<T> for FixedRange<T> {
 
     fn get_max(&self) -> T {
         self.max
+    }
+
+    fn to_stored(&self) -> StoredRange<T> {
+        StoredRange {
+            min: self.min,
+            max: self.max,
+        }
+    }
+
+    fn from(stored: StoredRange<T>) -> FixedRange<T> {
+        Self {
+            min: stored.min,
+            max: stored.max,
+        }
     }
 }
