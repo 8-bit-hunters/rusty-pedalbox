@@ -18,26 +18,19 @@ use rusty_pedalbox::storage::Storage;
 async fn main(_spawner: Spawner) {
     let p = init(Config::default());
 
-    const FLASH_STORAGE_ADDR: u32 = 128 * 1024;
-    const FLASH_STORAGE_SIZE: u32 = 128 * 1024;
-
+    // Create flash driver
     let flash = Flash::new_blocking(p.FLASH);
-
     defmt::info!("flash capacity = {}", flash.capacity());
 
+    // Define flash storage to save stored range
     const N: usize = size_of::<StoredRange<u16>>();
-    let mut storage = FlashStorage::<N> {
-        flash,
-        address: FLASH_STORAGE_ADDR,
-        page_size: FLASH_STORAGE_SIZE,
-    };
+    let mut storage = FlashStorage::<N>::new(flash);
 
+    // Create a fixed range for storing it
     let value = FixedRange::default().min(123).max(456);
 
     defmt::info!("Saving...");
     storage.save(&value.to_stored()).expect("save failed");
-
-    Timer::after(Duration::from_millis(500)).await;
 
     defmt::info!("Loading...");
     let loaded: Option<StoredRange<u16>> = storage.load();
