@@ -55,6 +55,7 @@ debug = [
     "embassy-time/defmt-timestamp-uptime",
     "embassy-stm32/defmt",
 ]
+adaptive-calibration = []
 
 [dev-dependencies]
 rstest = "0.26.1"
