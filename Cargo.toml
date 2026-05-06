@@ -63,3 +63,4 @@ rstest = "0.26.1"
 [dependencies]
 bytemuck = { version = "1.24.0", features = ["derive"] }
 embedded-hal = { version = "0.2.7" }
+embedded-storage = "0.3.1"
