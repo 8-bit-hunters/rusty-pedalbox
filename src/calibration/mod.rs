@@ -1,3 +1,4 @@
+use bytemuck::{Pod, Zeroable};
 use core::ops::{Add, AddAssign, Div, Sub, SubAssign};
 
 #[cfg(feature = "adaptive-calibration")]
@@ -8,6 +9,8 @@ pub trait Range<T: Int> {
     fn get_min(&self) -> T;
     fn get_max(&self) -> T;
     fn update(&mut self, _value: T) {}
+    fn to_stored(&self) -> StoredRange<T>;
+    fn from(stored: StoredRange<T>) -> Self;
 }
 
 pub trait Int:
@@ -59,3 +62,12 @@ impl Int for i32 {
         self.saturating_add(rhs)
     }
 }
+
+#[repr(C)]
+#[derive(Copy, Clone, Zeroable)]
+pub struct StoredRange<T: Int> {
+    pub min: T,
+    pub max: T,
+}
+
+unsafe impl Pod for StoredRange<u16> {}

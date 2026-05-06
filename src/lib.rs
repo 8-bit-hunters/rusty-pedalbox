@@ -16,6 +16,8 @@ use hx711::Hx711;
 pub mod calibration;
 pub mod fmt;
 pub mod io_monitors;
+pub mod platform_stm32;
+pub mod storage;
 
 pub mod prelude {
     pub use super::fmt::*;
