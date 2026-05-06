@@ -57,7 +57,7 @@ debug = [
 ]
 adaptive-calibration = []
 
-[dev-dependencies]
+[target.'cfg(not(target_arch = "arm"))'.dev-dependencies]
 rstest = "0.26.1"
 
 [dependencies]
