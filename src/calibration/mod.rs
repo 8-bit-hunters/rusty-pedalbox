@@ -1,5 +1,6 @@
 use core::ops::{Add, AddAssign, Div, Sub, SubAssign};
 
+#[cfg(feature = "adaptive-calibration")]
 pub mod adaptive;
 pub mod fixed;
 
