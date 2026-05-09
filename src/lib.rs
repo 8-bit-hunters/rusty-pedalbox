@@ -16,6 +16,7 @@ use hx711::Hx711;
 pub mod calibration;
 pub mod fmt;
 pub mod io_monitors;
+#[cfg(target_arch = "arm")]
 pub mod platform_stm32;
 pub mod storage;
 

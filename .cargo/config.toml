@@ -2,6 +2,10 @@
 
 [target.thumbv7em-none-eabi]
 runner = 'probe-rs run --chip STM32F407IEHx'
+rustflags = [
+    "-C", "link-arg=--nmagic",
+    "-C", "link-arg=-Tlink.x",
+]
 
 [build]
 target = "thumbv7em-none-eabi"
