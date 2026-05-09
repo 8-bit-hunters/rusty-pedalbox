@@ -5,13 +5,13 @@ use embassy_executor::Spawner;
 use embassy_stm32::flash::Flash;
 use embassy_stm32::{init, Config};
 use embedded_storage::nor_flash::ReadNorFlash;
-use rusty_pedalbox::calibration::fixed::FixedRange;
-use rusty_pedalbox::platform_stm32::FlashStorage;
+use pedalbox_lib::calibration::fixed::FixedRange;
+use pedalbox_lib::platform_stm32::FlashStorage;
 
 use defmt_rtt as _;
 use panic_probe as _;
-use rusty_pedalbox::calibration::{Range, StoredRange};
-use rusty_pedalbox::storage::Storage;
+use pedalbox_lib::calibration::{Range, StoredRange};
+use pedalbox_lib::storage::Storage;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
