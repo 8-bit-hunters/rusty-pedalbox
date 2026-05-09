@@ -25,9 +25,9 @@ use embassy_usb::class::hid;
 use embassy_usb::class::hid::HidWriter;
 use embassy_usb::Builder;
 use hx711::Hx711;
-use rusty_pedalbox::calibration::fixed::FixedRange;
-use rusty_pedalbox::fmt::warn;
-use rusty_pedalbox::io_monitors::{
+use pedalbox_lib::calibration::fixed::FixedRange;
+use pedalbox_lib::fmt::warn;
+use pedalbox_lib::io_monitors::{
     AnalogMonitor, AnalogMonitorConfig, LoadCellMonitor, LoadCellMonitorConfig,
 };
 

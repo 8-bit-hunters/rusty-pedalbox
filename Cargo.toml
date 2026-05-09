@@ -28,6 +28,10 @@ name = "rusty-pedalbox"
 test = false
 bench = false
 
+[lib]
+name = "pedalbox_lib"
+path = "src/lib.rs"
+
 [profile.dev]
 debug = true
 lto = true
