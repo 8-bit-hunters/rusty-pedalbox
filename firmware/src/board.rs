@@ -1,6 +1,6 @@
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
-use embassy_stm32::peripherals::{ADC1, ADC2, PA11, PA12, PA5, PA7, USB_OTG_FS};
-use embassy_stm32::{bind_interrupts, usb, Peri, Peripherals};
+use embassy_stm32::peripherals::{ADC1, ADC2, PA5, PA7, PA11, PA12, USB_OTG_FS};
+use embassy_stm32::{Peri, Peripherals, bind_interrupts, usb};
 
 bind_interrupts!(pub struct Irqs {
     OTG_FS => usb::InterruptHandler<USB_OTG_FS>;

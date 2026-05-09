@@ -3,7 +3,7 @@
 
 use embassy_executor::Spawner;
 use embassy_stm32::flash::Flash;
-use embassy_stm32::{init, Config};
+use embassy_stm32::{Config, init};
 use embedded_storage::nor_flash::ReadNorFlash;
 use pedalbox_lib::calibration::fixed::FixedRange;
 use pedalbox_lib::platform_stm32::FlashStorage;

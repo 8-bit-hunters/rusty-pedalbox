@@ -1,22 +1,12 @@
-#![cfg_attr(not(test), no_std)]
+#![no_std]
 
 #[cfg(test)]
 extern crate alloc;
-#[cfg(target_arch = "arm")]
-use embassy_stm32::adc::Adc;
-#[cfg(target_arch = "arm")]
-use embedded_hal::blocking::delay::DelayUs;
-#[cfg(target_arch = "arm")]
-use embedded_hal::digital::v2::InputPin;
-#[cfg(target_arch = "arm")]
-use embedded_hal::digital::v2::OutputPin;
-#[cfg(target_arch = "arm")]
-use hx711::Hx711;
 
 pub mod calibration;
 pub mod fmt;
 pub mod io_monitors;
-#[cfg(target_arch = "arm")]
+#[cfg(feature = "stm32")]
 pub mod platform_stm32;
 pub mod storage;
 
@@ -30,24 +20,6 @@ pub trait LoadCell {
     type ReturnType;
     type Error;
     fn read(&mut self) -> Result<Self::ReturnType, Self::Error>;
-}
-
-#[cfg(target_arch = "arm")]
-impl<D, IN, OUT, EIN, EOUT> LoadCell for Hx711<D, IN, OUT>
-where
-    D: DelayUs<u32>,
-    IN: InputPin<Error = EIN>,
-    OUT: OutputPin<Error = EOUT>,
-{
-    type ReturnType = i32;
-    type Error = ();
-
-    fn read(&mut self) -> Result<Self::ReturnType, Self::Error> {
-        match self.retrieve() {
-            Ok(v) => Ok(v),
-            Err(_) => Err(()),
-        }
-    }
 }
 
 pub trait Mapping
@@ -78,16 +50,35 @@ pub trait AnalogRead<Pin> {
     fn read(&mut self, pin: &mut Pin) -> Self::ReturnType;
 }
 
-#[cfg(target_arch = "arm")]
-impl<Pin, T> AnalogRead<Pin> for Adc<'_, T>
+#[cfg(feature = "stm32")]
+impl<'d, Pin, T> AnalogRead<Pin> for embassy_stm32::adc::Adc<'d, T>
 where
     Pin: embassy_stm32::adc::AdcChannel<T>,
     T: embassy_stm32::adc::Instance,
+    <<T as embassy_stm32::adc::BasicInstance>::Regs as embassy_stm32::adc::BasicAdcRegs>::SampleTime: From<embassy_stm32::adc::SampleTime>,
 {
     type ReturnType = u16;
 
     fn read(&mut self, pin: &mut Pin) -> Self::ReturnType {
-        self.blocking_read(pin)
+        self.blocking_read(pin, embassy_stm32::adc::SampleTime::CYCLES3.into())
+    }
+}
+
+#[cfg(feature = "stm32")]
+impl<D, IN, OUT, EIN, EOUT> LoadCell for hx711::Hx711<D, IN, OUT>
+where
+    D: embedded_hal::blocking::delay::DelayUs<u32>,
+    IN: embedded_hal::digital::v2::InputPin<Error = EIN>,
+    OUT: embedded_hal::digital::v2::OutputPin<Error = EOUT>,
+{
+    type ReturnType = i32;
+    type Error = ();
+
+    fn read(&mut self) -> Result<Self::ReturnType, Self::Error> {
+        match self.retrieve() {
+            Ok(v) => Ok(v),
+            Err(_) => Err(()),
+        }
     }
 }
 

@@ -10,6 +10,4 @@ repos:
     hooks:
       - id: fmt
       - id: cargo-check
-        args: ['--features', 'debug', '--']
       - id: clippy
-        args: ['--features', 'debug', '--']

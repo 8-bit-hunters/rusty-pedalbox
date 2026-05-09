@@ -191,8 +191,8 @@ impl<T: Int> Range<T> for AdaptiveRange<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::calibration::adaptive::{AdaptiveRange, ContractionConfig, ExpansionConfig};
     use crate::calibration::Range;
+    use crate::calibration::adaptive::{AdaptiveRange, ContractionConfig, ExpansionConfig};
 
     const NUMBER_OF_READINGS: u16 = u16::MAX;
     mod range_expansion_for_minimum {

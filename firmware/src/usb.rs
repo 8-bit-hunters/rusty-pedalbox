@@ -1,11 +1,11 @@
 use bytemuck::{Pod, Zeroable};
 use core::sync::atomic::AtomicI16;
+use embassy_stm32::Config;
 use embassy_stm32::rcc::{
-    mux, AHBPrescaler, APBPrescaler, Hse, HseMode, Pll, PllMul, PllPDiv, PllPreDiv, PllQDiv,
-    PllSource, Sysclk,
+    AHBPrescaler, APBPrescaler, Hse, HseMode, Pll, PllMul, PllPDiv, PllPreDiv, PllQDiv, PllSource,
+    Sysclk, mux,
 };
 use embassy_stm32::time::Hertz;
-use embassy_stm32::Config;
 use embassy_usb::class::hid;
 use static_cell::StaticCell;
 
@@ -95,6 +95,8 @@ impl PedalboxConfiguration for hid::Config<'_> {
             request_handler: None,
             poll_ms: 10,
             max_packet_size: 8,
+            hid_subclass: hid::HidSubclass::No,
+            hid_boot_protocol: hid::HidBootProtocol::None,
         }
     }
 }

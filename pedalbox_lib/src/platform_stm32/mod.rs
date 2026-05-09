@@ -1,5 +1,5 @@
 use crate::storage::Storage;
-use bytemuck::{bytes_of, Pod, Zeroable};
+use bytemuck::{Pod, Zeroable, bytes_of};
 use embassy_stm32::flash::{Blocking, Flash};
 
 const FLASH_STORAGE_ADDR: u32 = 128 * 1024;

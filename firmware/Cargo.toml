@@ -1,0 +1,50 @@
+[package]
+name = "firmware"
+version = "0.1.0"
+edition = "2024"
+authors = ["Kristof Kovacs <kristof.kovacs1996@gmail.com>"]
+description = "The firmware for the pedalbox"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("defmt"))'] }
+
+[[bin]]
+name = "rusty-pedalbox"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+pedalbox_lib = { path = "../pedalbox_lib", features = ["defmt", "stm32"] }
+cortex-m = { version = "0.7.7", features = ["inline-asm", "critical-section-single-core"] }
+cortex-m-rt = "0.7.5"
+defmt = { version = "1.0.1" }
+defmt-rtt = { version = "1.1.0" }
+embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread", "defmt"] }
+embassy-futures = { version = "0.1.2", features = ["defmt"] }
+embassy-sync = { version = "0.8.0", features = ["defmt"] }
+embassy-time = { version = "0.5.1", features = ["tick-hz-32_768", "defmt", "defmt-timestamp-uptime"] }
+embassy-stm32 = { version = "0.6.0", features = ["defmt", "stm32f407vg", "unstable-pac", "time-driver-any", "exti"] }
+panic-halt = "1.0.0"
+panic-probe = { version = "1.0.0", features = ["print-defmt"] }
+static_cell = "2.1.1"
+embassy-usb = { version = "0.6.0", features = ["defmt"] }
+hx711 = "0.6.0"
+bytemuck = { version = "1.24.0", features = ["derive"] }
+embedded-hal = { version = "0.2.7" }
+embedded-storage = "0.3.1"
+
+[profile.dev]
+debug = true
+lto = true
+opt-level = "z"
+incremental = true
+
+[profile.release]
+debug = false
+lto = true
+opt-level = "z"
+incremental = true
+
+[features]
+adaptive-calibration = []
