@@ -65,7 +65,10 @@ impl Int for i32 {
 
 #[repr(C)]
 #[derive(Copy, Clone, Zeroable)]
-pub struct StoredRange<T: Int> {
+pub struct StoredRange<T>
+where
+    T: Int,
+{
     pub min: T,
     pub max: T,
 }
