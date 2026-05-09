@@ -5,15 +5,12 @@ mod board;
 mod usb;
 
 use core::sync::atomic::Ordering;
-#[cfg(not(feature = "defmt"))]
-use panic_halt as _;
-#[cfg(feature = "defmt")]
 use {defmt_rtt as _, panic_probe as _};
 
 use crate::board::Board;
 use crate::usb::{
-    PedalboxConfiguration, PedalboxReport, UsbConfiguration, AXIS_X, AXIS_Y, AXIS_Z, BOS_DESC,
-    CONFIG_DESC, CONTROL_BUF, EP_OUT_BUFFER, HID_STATE, MSOS_DESC,
+    AXIS_X, AXIS_Y, AXIS_Z, BOS_DESC, CONFIG_DESC, CONTROL_BUF, EP_OUT_BUFFER, HID_STATE,
+    MSOS_DESC, PedalboxConfiguration, PedalboxReport, UsbConfiguration,
 };
 use embassy_executor::Spawner;
 use embassy_stm32::adc::Adc;
@@ -21,9 +18,9 @@ use embassy_stm32::gpio::{Input, Output};
 use embassy_stm32::peripherals::{ADC1, ADC2, PA5, PA7, USB_OTG_FS};
 use embassy_stm32::{Config, Peri};
 use embassy_time::{Delay, Duration, Timer};
+use embassy_usb::Builder;
 use embassy_usb::class::hid;
 use embassy_usb::class::hid::HidWriter;
-use embassy_usb::Builder;
 use hx711::Hx711;
 use pedalbox_lib::calibration::fixed::FixedRange;
 use pedalbox_lib::fmt::warn;
@@ -66,14 +63,10 @@ async fn main(spawner: Spawner) {
         hid_state,
         hid::Config::pedalbox_configuration(),
     );
-    spawner
-        .spawn(hid_task(hid_writer))
-        .expect("Failed to spawn hid task");
+    spawner.spawn(hid_task(hid_writer).expect("Failed to create hid task token"));
 
     let usb = builder.build();
-    spawner
-        .spawn(usb_task(usb))
-        .expect("Failed to spawn usb task");
+    spawner.spawn(usb_task(usb).expect("Failed to create usb task token"));
 
     let gas_pedal_range = FixedRange::default().min(2644).max(3700);
     let gas_pedal = AnalogMonitor::new(
@@ -85,9 +78,7 @@ async fn main(spawner: Spawner) {
             output_channel: &AXIS_X,
         },
     );
-    spawner
-        .spawn(input_monitor_x(gas_pedal))
-        .expect("Failed to spawn input monitor X");
+    spawner.spawn(input_monitor_x(gas_pedal).expect("Failed to create input monitor X task token"));
 
     let brake_pedal_range = FixedRange::default().min(0).max(230_000);
     let brake_pedal = LoadCellMonitor::new(
@@ -100,8 +91,7 @@ async fn main(spawner: Spawner) {
         },
     );
     spawner
-        .spawn(input_monitor_y(brake_pedal))
-        .expect("Failed to spawn input monitor Y");
+        .spawn(input_monitor_y(brake_pedal).expect("Failed to create input monitor Y task token"));
 
     let clutch_pedal_range = FixedRange::default().min(265).max(1700);
     let clutch_pedal = AnalogMonitor::new(
@@ -114,8 +104,7 @@ async fn main(spawner: Spawner) {
         },
     );
     spawner
-        .spawn(input_monitor_z(clutch_pedal))
-        .expect("Failed to spawn input monitor Z");
+        .spawn(input_monitor_z(clutch_pedal).expect("Failed to create input monitor Z task token"));
 }
 
 #[embassy_executor::task]
@@ -138,8 +127,8 @@ async fn hid_task(
         };
 
         let bytes = bytemuck::bytes_of(&report);
-        if let Err(e) = writer.write(bytes).await {
-            warn!("HID write failed: {:?}", e);
+        if let Err(_e) = writer.write(bytes).await {
+            warn!("HID write failed");
         }
 
         Timer::after(Duration::from_millis(10)).await;

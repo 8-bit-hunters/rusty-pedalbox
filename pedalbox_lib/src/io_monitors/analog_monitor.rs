@@ -1,11 +1,7 @@
 use crate::calibration::{Int, Range};
-use crate::fmt::debug;
-#[cfg(target_arch = "x86_64")]
-use crate::fmt::defmt::Format;
+use crate::fmt::{Format, debug};
 use crate::{AnalogRead, Mapping};
 use core::sync::atomic::{AtomicI16, Ordering};
-#[cfg(all(target_arch = "arm", feature = "defmt"))]
-use defmt::Format;
 
 pub struct AnalogMonitorConfig<Adc, Pin, R, T>
 where
@@ -25,7 +21,7 @@ where
     R: Range<T>,
     T: Mapping + Int,
 {
-    name: &'static str,
+    _name: &'static str,
     range: R,
     adc: Adc,
     pin: Pin,
@@ -43,7 +39,7 @@ where
         config: AnalogMonitorConfig<Adc, Pin, R, T>,
     ) -> AnalogMonitor<Adc, Pin, R, T> {
         Self {
-            name,
+            _name: name,
             adc: config.adc,
             pin: config.pin,
             range: config.range,
@@ -60,17 +56,17 @@ where
         self.output_channel.store(mapped_reading, Ordering::Relaxed);
         debug!(
             "Analog Monitor[{}]: Raw -> {}\tMapped -> {}",
-            self.name, raw_reading, mapped_reading
+            self._name, raw_reading, mapped_reading
         );
     }
 }
 
 #[cfg(test)]
 mod analog_monitor_testing {
-    use crate::calibration::fixed::FixedRange;
-    use crate::calibration::Range;
-    use crate::io_monitors::analog_monitor::{AnalogMonitor, AnalogMonitorConfig};
     use crate::AnalogRead;
+    use crate::calibration::Range;
+    use crate::calibration::fixed::FixedRange;
+    use crate::io_monitors::analog_monitor::{AnalogMonitor, AnalogMonitorConfig};
     use alloc::boxed::Box;
     use core::sync::atomic::{AtomicI16, Ordering};
     use rstest::rstest;

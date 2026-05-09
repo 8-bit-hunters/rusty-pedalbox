@@ -1,11 +1,7 @@
 use crate::calibration::{Int, Range};
-#[cfg(target_arch = "x86_64")]
-use crate::fmt::defmt::Format;
-use crate::fmt::{debug, warn};
+use crate::fmt::{Format, debug, warn};
 use crate::{LoadCell, Mapping};
 use core::sync::atomic::{AtomicI16, Ordering};
-#[cfg(all(target_arch = "arm", feature = "defmt"))]
-use defmt::Format;
 
 pub struct LoadCellMonitorConfig<L, R, T>
 where
@@ -24,7 +20,7 @@ where
     R: Range<T>,
     T: Mapping + Int,
 {
-    name: &'static str,
+    _name: &'static str,
     range: R,
     load_cell: L,
     output_channel: &'static AtomicI16,
@@ -41,7 +37,7 @@ where
         config: LoadCellMonitorConfig<L, R, T>,
     ) -> LoadCellMonitor<L, R, T> {
         Self {
-            name,
+            _name: name,
             range: config.range,
             load_cell: config.load_cell,
             output_channel: config.output_channel,
@@ -49,31 +45,27 @@ where
     }
 
     pub fn run(&mut self) {
-        match self.load_cell.read() {
-            Ok(raw_reading) => {
-                self.range.update(raw_reading);
+        if let Ok(raw_reading) = self.load_cell.read() {
+            self.range.update(raw_reading);
 
-                let mapped_reading =
-                    raw_reading.map_to_i16(self.range.get_min(), self.range.get_max());
-                self.output_channel.store(mapped_reading, Ordering::Relaxed);
-                debug!(
-                    "Analog Monitor[{}]: Raw -> {}\tMapped -> {}",
-                    self.name, raw_reading, mapped_reading
-                );
-            }
-            Err(_) => {
-                warn!("Couldn't retrieve data")
-            }
+            let mapped_reading = raw_reading.map_to_i16(self.range.get_min(), self.range.get_max());
+            self.output_channel.store(mapped_reading, Ordering::Relaxed);
+            debug!(
+                "Analog Monitor[{}]: Raw -> {}\tMapped -> {}",
+                self._name, raw_reading, mapped_reading
+            );
+        } else {
+            warn!("Couldn't retrieve data")
         }
     }
 }
 
 #[cfg(test)]
 mod load_cell_monitor_testing {
-    use crate::calibration::fixed::FixedRange;
-    use crate::calibration::Range;
-    use crate::io_monitors::load_cell_monitor::{LoadCellMonitor, LoadCellMonitorConfig};
     use crate::LoadCell;
+    use crate::calibration::Range;
+    use crate::calibration::fixed::FixedRange;
+    use crate::io_monitors::load_cell_monitor::{LoadCellMonitor, LoadCellMonitorConfig};
     use alloc::boxed::Box;
     use core::sync::atomic::{AtomicI16, Ordering};
     use rstest::rstest;

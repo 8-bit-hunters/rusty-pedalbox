@@ -3,10 +3,10 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
+use embassy_stm32::Config;
 use embassy_stm32::flash::Blocking;
 use embassy_stm32::flash::Flash;
 use embassy_stm32::gpio::{Input, Pull};
-use embassy_stm32::Config;
 use embassy_time::{Duration, Timer};
 use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
 use static_cell::StaticCell;
@@ -105,11 +105,7 @@ fn load_counter(flash: &mut Flash<'static, Blocking>) -> u32 {
     let data: PersistentData =
         unsafe { core::ptr::read_unaligned(buf.as_ptr() as *const PersistentData) };
 
-    if data.is_valid() {
-        data.counter
-    } else {
-        0
-    }
+    if data.is_valid() { data.counter } else { 0 }
 }
 
 fn save_counter(flash: &mut Flash<'static, Blocking>, counter: u32) {
