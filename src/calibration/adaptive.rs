@@ -1,4 +1,4 @@
-use crate::calibration::{Int, Range};
+use crate::calibration::{Int, Range, StoredRange};
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct ContractionConfig<T: Int> {
@@ -12,7 +12,7 @@ pub struct ExpansionConfig<T: Int> {
     expansion_rate: T,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct AdaptiveRange<T: Int> {
     min: T,
     max: T,
@@ -21,6 +21,20 @@ pub struct AdaptiveRange<T: Int> {
     dirty: bool,
     min_idle: u32,
     max_idle: u32,
+}
+
+impl<T: Int> Default for AdaptiveRange<T> {
+    fn default() -> Self {
+        Self {
+            min: T::zero(),
+            max: T::zero(),
+            expansion_config: None,
+            contraction_config: None,
+            dirty: false,
+            min_idle: 0,
+            max_idle: 0,
+        }
+    }
 }
 
 impl<T: Int> AdaptiveRange<T> {
@@ -161,6 +175,17 @@ impl<T: Int> Range<T> for AdaptiveRange<T> {
         if self.expansion_config.is_some() {
             self.expand(value);
         }
+    }
+
+    fn to_stored(&self) -> StoredRange<T> {
+        StoredRange {
+            min: self.min,
+            max: self.max,
+        }
+    }
+
+    fn from(stored: StoredRange<T>) -> Self {
+        Self::default().min(stored.min).max(stored.max)
     }
 }
 

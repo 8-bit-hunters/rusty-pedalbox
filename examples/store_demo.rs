@@ -4,7 +4,6 @@
 use embassy_executor::Spawner;
 use embassy_stm32::flash::Flash;
 use embassy_stm32::{init, Config};
-use embassy_time::{Duration, Timer};
 use embedded_storage::nor_flash::ReadNorFlash;
 use rusty_pedalbox::calibration::fixed::FixedRange;
 use rusty_pedalbox::platform_stm32::FlashStorage;
