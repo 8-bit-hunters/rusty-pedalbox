@@ -1,0 +1,15 @@
+[target.xtensa-esp32s2-none-elf]
+runner = "espflash flash --chip esp32s2 --no-stub --after watchdog-reset"
+
+[env]
+DEFMT_LOG = "debug"
+
+[build]
+rustflags = [
+  "-C", "link-arg=-nostartfiles",
+]
+
+target = "xtensa-esp32s2-none-elf"
+
+[unstable]
+build-std = ["core"]
