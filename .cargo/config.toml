@@ -1,14 +1,12 @@
-# This file was automatically generated.
-
-[target.thumbv7em-none-eabi]
-runner = 'probe-rs run --chip STM32F407IEHx'
+[target.thumbv7em-none-eabihf]
+runner = 'probe-rs run --chip STM32F407VGTx'
 rustflags = [
     "-C", "link-arg=--nmagic",
     "-C", "link-arg=-Tlink.x",
 ]
 
 [build]
-target = "thumbv7em-none-eabi"
+target = "thumbv7em-none-eabihf"
 
 [env]
 DEFMT_LOG = "info"
