@@ -33,6 +33,7 @@ hx711 = "0.6.0"
 bytemuck = { version = "1.24.0", features = ["derive"] }
 embedded-hal = { version = "0.2.7" }
 embedded-storage = "0.3.1"
+defmt-embassy-usbserial = { path = "../defmt-embassy-usbserial" }
 
 [profile.dev]
 debug = true
