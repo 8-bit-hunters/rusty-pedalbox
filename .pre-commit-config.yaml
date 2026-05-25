@@ -5,9 +5,33 @@ repos:
       - id: check-yaml
       - id: end-of-file-fixer
       - id: trailing-whitespace
-  - repo: https://github.com/doublify/pre-commit-rust
-    rev: v1.0
+
+  - repo: local
     hooks:
       - id: fmt
-      - id: cargo-check
-      - id: clippy
+        name: cargo fmt
+        entry: cargo fmt --all -- --check
+        language: system
+        pass_filenames: false
+        types: [rust]
+
+      - id: clippy-host
+        name: clippy (host)
+        entry: cargo host-clippy --package pedalbox_lib --package log-sniffer -- -D warnings
+        language: system
+        pass_filenames: false
+        types: [rust]
+
+      - id: check-firmware
+        name: cargo check (firmware)
+        entry: cargo check --package firmware
+        language: system
+        pass_filenames: false
+        types: [rust]
+
+      - id: clippy-firmware
+        name: clippy (firmware)
+        entry: cargo clippy --package firmware -- -D warnings
+        language: system
+        pass_filenames: false
+        types: [rust]
