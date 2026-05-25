@@ -22,6 +22,7 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
 
-    serial_port_task(args.port, 115_200).await;
+    let (bytes_tx, _bytes_rx) = tokio::sync::mpsc::channel(100);
+    serial_port_task(args.port, 115_200, bytes_tx).await;
     Ok(())
 }
