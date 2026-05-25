@@ -18,7 +18,11 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release --all-features --verbose
+          args: --release --all-features --verbose -p firmware
+      - uses: actions-rs/cargo@v1
+        with:
+          command: host-build
+          args: -p log-sniffer
       - uses: actions-rs/cargo@v1
         with:
           command: host-test
