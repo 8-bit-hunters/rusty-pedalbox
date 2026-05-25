@@ -1,0 +1,13 @@
+[package]
+name = "log-sniffer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.102"
+clap = { version = "4.6.1", features = ["derive"] }
+tokio = { version = "1.52.3", features = ["full"] }
+log = "0.4.29"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+tokio-serial = "5.4.5"

@@ -12,8 +12,8 @@ use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::{Driver, InterruptHandler};
 use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_time::Timer;
-use static_cell::StaticCell;
 use panic_probe as _;
+use static_cell::StaticCell;
 
 bind_interrupts!( struct Irqs {
     OTG_FS => InterruptHandler<peripherals::USB_OTG_FS>;

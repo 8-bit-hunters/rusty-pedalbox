@@ -1,5 +1,5 @@
 [workspace]
 resolver = "3"
-members = ["firmware", "pedalbox_lib", "defmt-embassy-usbserial"]
+members = ["firmware", "pedalbox_lib", "defmt-embassy-usbserial", "log-sniffer"]
 authors = ["Kristof Kovacs <kristof.kovacs1996@gmail.com>"]
 description = "This project is an experiment to create a USB pedalbox with an STM32F407."
