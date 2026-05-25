@@ -1,5 +1,6 @@
 use anyhow::Result;
 use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::sync::mpsc;
 use tokio::time::{Duration, timeout};
 use tokio_serial::{SerialPort, SerialStream};
 use tracing::{debug, info, instrument, warn};
@@ -8,13 +9,13 @@ use tracing::{debug, info, instrument, warn};
 ///
 /// Retries every second on open failure or any read error (including EOF and the
 /// 5-second silence timeout). Intended to be spawned as a [`tokio::task`].
-#[instrument]
-pub async fn serial_port_task(port: String, baudrate: u32) {
+#[instrument(skip(tx))]
+pub async fn serial_port_task(port: String, baudrate: u32, tx: mpsc::Sender<Vec<u8>>) {
     loop {
         match SerialReader::new(&port, baudrate) {
             Ok(mut reader) => {
                 info!("Listening on {}", reader.port_name);
-                if let Err(e) = reader.run().await {
+                if let Err(e) = reader.run(&tx).await {
                     warn!("Connection lost: {e}");
                 }
             }
@@ -51,12 +52,15 @@ impl<P: AsyncRead + Unpin> SerialReader<P> {
     /// Reads continuously until an error occurs or no data arrives for 5 seconds.
     ///
     /// Any `Err` signals `serial_port_task` to drop the port and reconnect.
-    pub async fn run(&mut self) -> Result<()> {
+    pub async fn run(&mut self, output_channel: &mpsc::Sender<Vec<u8>>) -> Result<()> {
         loop {
             match timeout(Duration::from_secs(5), self.read()).await {
                 Ok(Ok(0)) => continue,
                 Ok(Ok(n)) => {
                     debug!("Received {} bytes: {:02x?}", n, self.buffer().last_n(n));
+                    output_channel
+                        .send(self.buffer().as_slice().to_vec())
+                        .await?;
                     self.buffer_mut().clear();
                 }
                 Ok(Err(e)) => {
@@ -75,7 +79,7 @@ impl<P: AsyncRead + Unpin> SerialReader<P> {
     ///
     /// ## Returns
     ///
-    /// The amount of bytes read into the buffer.
+    /// The number of bytes read.
     ///
     /// `Ok(0)` from the underlying async read means EOF (device disconnected),
     /// so it is promoted to `Err` rather than silently treated as "no data".
@@ -180,15 +184,16 @@ mod tests {
             buf.clear();
 
             // then
-            assert_eq!(buf.as_slice(), &[]);
+            assert_eq!(buf.as_slice(), &[] as &[u8]);
         }
     }
 
     mod test_serial_reader {
         use super::*;
+        use anyhow::Context;
 
         #[tokio::test]
-        async fn when_eof_is_received() {
+        async fn when_read_receives_eof() {
             // Given
             let mock = tokio_test::io::Builder::new().build(); // immediately EOF
             let mut reader = SerialReader::with_port(mock);
@@ -201,7 +206,7 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn when_bytes_received() {
+        async fn when_read_receives_data() {
             // Given
             let mock = tokio_test::io::Builder::new().read(b"\x01\x02\x03").build();
             let mut reader = SerialReader::with_port(mock);
@@ -212,6 +217,25 @@ mod tests {
             // Then
             assert_eq!(result.unwrap(), 3);
             assert_eq!(reader.buffer().as_slice(), &[0x01, 0x02, 0x03]);
+        }
+
+        #[tokio::test]
+        async fn when_run_receives_bytes() {
+            // Given
+            let mock = tokio_test::io::Builder::new().read(b"\x01\x02\x03").build();
+            let mut reader = SerialReader::with_port(mock);
+            let (tx, mut rx) = mpsc::channel(8);
+
+            // When
+            let _ = reader.run(&tx).await.context("Failed to run reader");
+
+            // Then
+            let received = rx
+                .recv()
+                .await
+                .context("Failed to receive message")
+                .unwrap();
+            assert_eq!(received, vec![0x01, 0x02, 0x03]);
         }
     }
 }
