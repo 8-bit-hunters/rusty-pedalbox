@@ -16,6 +16,7 @@ build-std = ["core"]
 build-std-features = ["panic_immediate_abort"]
 
 [alias]
-host-test = "test --package pedalbox_lib --target x86_64-unknown-linux-gnu --no-default-features --lib"
-host-build = "build --package pedalbox_lib --target x86_64-unknown-linux-gnu --no-default-features --lib"
-host-clippy = "clippy --package pedalbox_lib --target x86_64-unknown-linux-gnu --no-default-features --lib"
+host-test = "test --target x86_64-unknown-linux-gnu"
+host-build = "build --target x86_64-unknown-linux-gnu"
+host-run = "run --target x86_64-unknown-linux-gnu"
+host-clippy = "clippy --target x86_64-unknown-linux-gnu"
