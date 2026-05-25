@@ -1,6 +1,8 @@
 use anyhow::Result;
 use clap::Parser;
+use log_sniffer::decoder::decoder_task;
 use log_sniffer::serial::serial_port_task;
+use std::path::PathBuf;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser, Debug)]
@@ -12,6 +14,10 @@ struct Args {
     /// Serial port, e.g. /dev/ttyACM2
     #[arg(short, long)]
     port: String,
+
+    /// Path to the firmware ELF file of the device
+    #[arg(short, long)]
+    elf: PathBuf,
 }
 
 #[tokio::main]
@@ -22,7 +28,11 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
 
-    let (bytes_tx, _bytes_rx) = tokio::sync::mpsc::channel(100);
-    serial_port_task(args.port, 115_200, bytes_tx).await;
+    let (bytes_tx, bytes_rx) = tokio::sync::mpsc::channel(100);
+    let (_, decoder_result) = tokio::join!(
+        serial_port_task(args.port, 115_200, bytes_tx),
+        decoder_task(args.elf, bytes_rx)
+    );
+    decoder_result?;
     Ok(())
 }
