@@ -22,3 +22,8 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: host-test
+          args: -p pedalbox_lib
+      - uses: actions-rs/cargo@v1
+        with:
+          command: host-test
+          args: -p log-sniffer
