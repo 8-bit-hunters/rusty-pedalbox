@@ -108,7 +108,7 @@ mod analog_monitor_testing {
         let result = AnalogMonitor::new(name, config);
 
         // Then
-        assert_eq!(result.name, name);
+        assert_eq!(result._name, name);
         assert_eq!(result.adc, adc);
         assert_eq!(result.pin, pin);
         assert_eq!(result.range.get_min(), range_min);
