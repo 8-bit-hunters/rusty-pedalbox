@@ -102,7 +102,7 @@ mod load_cell_monitor_testing {
         let result = LoadCellMonitor::new(name, config);
 
         // Then
-        assert_eq!(result.name, name);
+        assert_eq!(result._name, name);
         assert_eq!(result.range.get_min(), range_min);
         assert_eq!(result.range.get_max(), range_max);
         assert_eq!(result.load_cell, load_cell);
