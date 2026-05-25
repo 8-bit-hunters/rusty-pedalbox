@@ -1,5 +1,5 @@
 use anyhow::Result;
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::time::{Duration, timeout};
 use tokio_serial::{SerialPort, SerialStream};
 use tracing::{debug, info, instrument, warn};
@@ -13,7 +13,7 @@ pub async fn serial_port_task(port: String, baudrate: u32) {
     loop {
         match SerialReader::new(&port, baudrate) {
             Ok(mut reader) => {
-                log::info!("Listening on {}", reader.port.name().unwrap_or_default());
+                info!("Listening on {}", reader.port_name);
                 if let Err(e) = reader.run().await {
                     warn!("Connection lost: {e}");
                 }
@@ -26,24 +26,28 @@ pub async fn serial_port_task(port: String, baudrate: u32) {
     }
 }
 
-/// Owns a [`SerialStream`] and an internal read buffer.
+/// Owns an async port and an internal read buffer.
 #[derive(Debug)]
-pub struct SerialReader {
-    port: SerialStream,
+pub struct SerialReader<P = SerialStream> {
+    port: P,
+    port_name: String,
     buf: Buffer,
 }
 
-impl SerialReader {
-    pub fn new(port: &String, baudrate: u32) -> Result<Self> {
-        let port = SerialStream::open(&tokio_serial::new(port, baudrate))?;
-
-        info!("Opened serial port '{}'", port.name().unwrap_or_default());
+impl SerialReader<SerialStream> {
+    pub fn new(port: &str, baudrate: u32) -> Result<Self> {
+        let stream = SerialStream::open(&tokio_serial::new(port, baudrate))?;
+        let port_name = stream.name().unwrap_or_default();
+        info!("Opened serial port '{}'", port_name);
         Ok(SerialReader {
-            port,
+            port: stream,
+            port_name,
             buf: Buffer::new(),
         })
     }
+}
 
+impl<P: AsyncRead + Unpin> SerialReader<P> {
     /// Reads continuously until an error occurs or no data arrives for 5 seconds.
     ///
     /// Any `Err` signals `serial_port_task` to drop the port and reconnect.
@@ -69,6 +73,10 @@ impl SerialReader {
 
     /// Reads available bytes into the internal buffer.
     ///
+    /// ## Returns
+    ///
+    /// The amount of bytes read into the buffer.
+    ///
     /// `Ok(0)` from the underlying async read means EOF (device disconnected),
     /// so it is promoted to `Err` rather than silently treated as "no data".
     pub async fn read(&mut self) -> Result<usize> {
@@ -92,12 +100,20 @@ impl SerialReader {
     }
 }
 
-impl Drop for SerialReader {
+impl<P> Drop for SerialReader<P> {
     fn drop(&mut self) {
-        warn!(
-            "Dropping serial port '{}'",
-            self.port.name().unwrap_or_default()
-        );
+        warn!("Dropping serial port '{}'", self.port_name);
+    }
+}
+
+#[cfg(test)]
+impl<P> SerialReader<P> {
+    fn with_port(port: P) -> Self {
+        SerialReader {
+            port,
+            port_name: "test".to_string(),
+            buf: Buffer::new(),
+        }
     }
 }
 
@@ -132,5 +148,70 @@ impl Buffer {
 impl Default for Buffer {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    mod test_buffer {
+        use super::*;
+
+        #[test]
+        fn when_last_n_returns_tail() {
+            // Given
+            let mut buf = Buffer::new();
+
+            // When
+            buf.extend_from_slice(&[1, 2, 3, 4, 5]);
+
+            // Then
+            assert_eq!(buf.last_n(3), &[3, 4, 5]);
+        }
+
+        #[test]
+        fn when_emptying_buffer() {
+            // Given
+            let mut buf = Buffer::new();
+            buf.extend_from_slice(&[1, 2, 3]);
+
+            // When
+            buf.clear();
+
+            // then
+            assert_eq!(buf.as_slice(), &[]);
+        }
+    }
+
+    mod test_serial_reader {
+        use super::*;
+
+        #[tokio::test]
+        async fn when_eof_is_received() {
+            // Given
+            let mock = tokio_test::io::Builder::new().build(); // immediately EOF
+            let mut reader = SerialReader::with_port(mock);
+
+            // When
+            let result = reader.read().await;
+
+            // Then
+            assert!(result.is_err());
+        }
+
+        #[tokio::test]
+        async fn when_bytes_received() {
+            // Given
+            let mock = tokio_test::io::Builder::new().read(b"\x01\x02\x03").build();
+            let mut reader = SerialReader::with_port(mock);
+
+            // When
+            let result = reader.read().await;
+
+            // Then
+            assert_eq!(result.unwrap(), 3);
+            assert_eq!(reader.buffer().as_slice(), &[0x01, 0x02, 0x03]);
+        }
     }
 }
