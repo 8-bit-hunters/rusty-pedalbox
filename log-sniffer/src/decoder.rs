@@ -12,49 +12,43 @@ pub async fn decoder_task(
     elf_path: PathBuf,
     mut bytes_rx: mpsc::Receiver<Vec<u8>>,
 ) -> anyhow::Result<()> {
-    let decoder = Decoder::new(elf_path)?;
-    let mut stream = decoder.new_stream_decoder();
+    let elf_bytes = std::fs::read(&elf_path)
+        .with_context(|| format!("failed to read ELF: {}", elf_path.display()))?;
+    let table = Table::parse(&elf_bytes)
+        .context("Failed to parse defmt from ELF")?
+        .context("ELF contains no defmt data - was it built with defmt?")?;
+    let mut decoder = Decoder::new(&table, elf_bytes)?;
     while let Some(bytes) = bytes_rx.recv().await {
-        decoder.decode(&mut *stream, &bytes);
+        decoder.decode(&bytes);
     }
     Ok(())
 }
 
-/// Holds the defmt symbol table and source location map loaded from a firmware ELF.
-pub struct Decoder {
-    table: Table,
+/// Wraps a defmt stream decoder and source location map.
+///
+/// Borrows from a [`Table`] that must outlive this struct - typically owned by [`decoder_task`].
+pub struct Decoder<'a> {
+    stream: Box<dyn StreamDecoder + 'a>,
+    #[allow(dead_code)]
     locations: Locations,
 }
 
-impl Decoder {
-    pub fn new(elf_file: PathBuf) -> anyhow::Result<Self> {
-        let elf_bytes = std::fs::read(&elf_file)
-            .with_context(|| format!("failed to read ELF: {}", elf_file.display()))?;
-        let table = Table::parse(&elf_bytes)
-            .context("Failed to parse defmt from ELF")?
-            .context("ELF contains no defmt data - was it built with defmt?")?;
+impl<'a> Decoder<'a> {
+    pub fn new(table: &'a Table, elf_bytes: Vec<u8>) -> anyhow::Result<Self> {
         let locations = table.get_locations(&elf_bytes)?;
-        Ok(Self { table, locations })
-    }
-
-    /// Creates a stream decoder tied to this table's lifetime.
-    ///
-    /// Must be reset (dropped and recreated) on reconnect — a broken byte stream
-    /// corrupts the decoder's internal framing state.
-    pub fn new_stream_decoder(&self) -> Box<dyn StreamDecoder + '_> {
-        self.table.new_stream_decoder()
+        let stream = table.new_stream_decoder();
+        Ok(Self { stream, locations })
     }
 
     /// Feeds `bytes` into the stream decoder and drains all complete frames.
     ///
     /// `UnexpectedEof` is not an error — it means the frame isn't complete yet and
     /// more bytes are needed before the next frame can be emitted.
-    pub fn decode(&self, stream: &mut dyn StreamDecoder, bytes: &[u8]) {
-        stream.received(bytes);
+    pub fn decode(&mut self, bytes: &[u8]) {
+        self.stream.received(bytes);
         loop {
-            match stream.decode() {
+            match self.stream.decode() {
                 Ok(frame) => {
-                    let _loc = self.locations.get(&frame.index());
                     println!("{}", frame.display(true));
                 }
                 Err(DecodeError::UnexpectedEof) => {
