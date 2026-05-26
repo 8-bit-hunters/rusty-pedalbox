@@ -67,9 +67,18 @@ async fn usb_serial_task(
 async fn hello_task() {
     loop {
         info!("USB connected");
-
+        let mut counter: u32 = 0;
         loop {
-            info!("tick");
+            if counter % 2 == 0 {
+                info!("tick");
+            } else {
+                info!("tack");
+            }
+
+            if counter % 10 == 0 {
+                warn!("this is a warning!")
+            }
+            counter = counter.wrapping_add(1);
             Timer::after_millis(100).await;
         }
     }
