@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use log_sniffer::decoder::decoder_task;
+use log_sniffer::mcap_writer::mcap_writer_task;
 use log_sniffer::serial::serial_port_task;
 use std::path::PathBuf;
 use tracing_subscriber::EnvFilter;
@@ -18,6 +19,10 @@ struct Args {
     /// Path to the firmware ELF file of the device
     #[arg(short, long)]
     elf: PathBuf,
+
+    /// Path to the output MCAP file
+    #[arg(short, long)]
+    output: PathBuf,
 }
 
 #[tokio::main]
@@ -29,10 +34,18 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     let (bytes_tx, bytes_rx) = tokio::sync::mpsc::channel(100);
-    let (_, decoder_result) = tokio::join!(
-        serial_port_task(args.port, 115_200, bytes_tx),
-        decoder_task(args.elf, bytes_rx)
+    let (log_tx, log_rx) = tokio::sync::mpsc::channel(100);
+
+    let writer_handle = tokio::spawn(mcap_writer_task(args.output, log_rx));
+
+    let mut decoder_result: anyhow::Result<()> = Ok(());
+    tokio::select!(
+        _ = serial_port_task(args.port, 115_200, bytes_tx) => {},
+        result = decoder_task(args.elf, bytes_rx, log_tx) => { decoder_result = result },
+        _ = tokio::signal::ctrl_c() => {},
     );
+
+    writer_handle.await??;
     decoder_result?;
     Ok(())
 }
