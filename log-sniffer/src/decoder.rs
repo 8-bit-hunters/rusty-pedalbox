@@ -64,17 +64,18 @@ impl<'a> Decoder<'a> {
     /// more bytes are needed before the next frame can be emitted.
     pub fn decode(&mut self, bytes: &[u8]) -> Vec<LogMessage> {
         self.stream.received(bytes);
-        let received_at_ns = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos() as u64;
-        let received_at = OffsetDateTime::from_unix_timestamp_nanos(received_at_ns as i128)
-            .map(|dt| dt.format(&Rfc3339).unwrap_or_default())
-            .unwrap_or_default();
         let mut messages = Vec::new();
         loop {
             match self.stream.decode() {
                 Ok(frame) => {
+                    let received_at_ns = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_nanos() as u64;
+                    let received_at =
+                        OffsetDateTime::from_unix_timestamp_nanos(received_at_ns as i128)
+                            .map(|dt| dt.format(&Rfc3339).unwrap_or_default())
+                            .unwrap_or_default();
                     println!("{}", frame.display(true));
                     let location = self
                         .locations
