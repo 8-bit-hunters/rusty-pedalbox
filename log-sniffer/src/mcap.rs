@@ -7,7 +7,11 @@ use std::path::PathBuf;
 use tokio::sync::mpsc;
 use tracing::{info, instrument};
 
-/// Receives decoded log messages and writes them to an MCAP file.
+/// Receives decoded [`LogMessage`]s and writes them to an MCAP file as [`foxglove.Log`](Log)
+/// JSON messages.
+///
+/// Each message is written with `log_time` (device uptime) and `publish_time` (host wall-clock)
+/// in the MCAP message header, and the full `foxglove.Log` fields in the JSON body.
 ///
 /// Exits and finalizes the file when `log_rx` is closed — i.e., when [`decoder_task`] finishes.
 #[instrument(skip(log_rx))]
@@ -54,12 +58,18 @@ pub async fn mcap_writer_task(
     Ok(())
 }
 
+/// Wire representation of a `foxglove.Log` message, serialized as JSON into the MCAP body.
+///
+/// Field names and types match the [`LOG_SCHEMA`] exactly so that Foxglove can parse the
+/// message without a separate schema-to-struct mapping step.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Log {
     pub timestamp: Timestamp,
     pub level: Level,
     pub message: String,
+    /// Firmware crate name, shown as the source node/process in Foxglove's log panel.
     pub name: String,
+    /// Source file name (stem only, e.g. `main.rs`).
     pub file: String,
     pub line: u64,
 }
@@ -99,6 +109,10 @@ impl From<LogMessage> for Log {
     }
 }
 
+/// MCAP-layer timestamp matching the `foxglove.Log` schema (`{ sec, nsec }`).
+///
+/// Kept separate from [`records::Timestamp`](crate::records::Timestamp) so that changes to
+/// the foxglove wire format don't require changes to the internal pipeline types.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Timestamp {
     pub sec: u64,
@@ -114,6 +128,10 @@ impl From<LogTimestamp> for Timestamp {
     }
 }
 
+/// Log level as defined by the `foxglove.Log` schema.
+///
+/// Serialized as its integer discriminant (0–5) to satisfy the schema's `oneOf` constraint.
+/// `Unknown` (0) is used for defmt's `trace!` level, which has no direct foxglove equivalent.
 #[repr(u8)]
 #[derive(Debug, Clone, Copy)]
 pub enum Level {

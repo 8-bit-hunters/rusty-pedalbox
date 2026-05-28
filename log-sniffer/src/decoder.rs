@@ -10,7 +10,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tracing::{debug, info, instrument, warn};
 
-/// Receives raw bytes from the serial channel, decodes them as defmt frames, and prints them.
+/// Receives [`ConnectionEvent`]s from the serial channel, decodes defmt frames, and forwards
+/// [`LogMessage`]s to the MCAP writer.
+///
+/// On [`ConnectionEvent::Reconnected`] the defmt stream decoder is reset so that stale frame
+/// state from the previous connection does not corrupt the new byte stream.
 ///
 /// Exits when `bytes_rx` is closed — i.e., when [`serial_port_task`] stops sending.
 #[instrument(skip_all)]
@@ -57,14 +61,19 @@ impl<'a> Decoder<'a> {
         Ok(Self { stream, locations })
     }
 
+    /// Discards all buffered state and starts a fresh stream decoder.
+    ///
+    /// Called on [`ConnectionEvent::Reconnected`] so that leftover bytes from the previous
+    /// connection do not cause spurious `Malformed` errors on the new stream.
     pub fn reset(&mut self, table: &'a Table) {
         self.stream = table.new_stream_decoder();
     }
 
     /// Feeds `bytes` into the stream decoder and drains all complete frames.
     ///
-    /// `UnexpectedEof` is not an error — it means the frame isn't complete yet and
-    /// more bytes are needed before the next frame can be emitted.
+    /// `UnexpectedEof` is not an error — it means the frame is incomplete and more bytes are
+    /// needed. `Malformed` means one frame was corrupt; decoding continues from the next byte
+    /// so that a single bad frame does not stall the rest of the stream.
     pub fn decode(&mut self, bytes: &[u8]) -> Vec<LogMessage> {
         self.stream.received(bytes);
         let mut messages = Vec::new();

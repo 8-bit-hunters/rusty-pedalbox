@@ -9,8 +9,11 @@ use tracing::{debug, info, instrument, warn};
 
 /// Runs forever: opens the serial port, reads until the connection is lost, then reconnects.
 ///
+/// On each (re)open, sends [`ConnectionEvent::Reconnected`] so the decoder can reset its
+/// defmt stream state before the first bytes of the new connection arrive.
+///
 /// Retries every second on open failure or any read error (including EOF and the
-/// 5-second silence timeout). Intended to be spawned as a [`tokio::task`].
+/// 5-second silence timeout). Intended to be run inline in a `tokio::select!`.
 #[instrument(skip(tx))]
 pub async fn serial_port_task(port: String, baudrate: u32, tx: mpsc::Sender<ConnectionEvent>) {
     loop {
@@ -30,7 +33,9 @@ pub async fn serial_port_task(port: String, baudrate: u32, tx: mpsc::Sender<Conn
     }
 }
 
-/// Owns an async port and an internal read buffer.
+/// Owns an async serial port and accumulates bytes into an internal [`Buffer`].
+///
+/// Generic over `P` so that tests can substitute a mock reader without a real serial port.
 #[derive(Debug)]
 pub struct SerialReader<P = SerialStream> {
     port: P,
@@ -153,6 +158,7 @@ impl Buffer {
         Self(Vec::new())
     }
 
+    /// Returns a slice of the last `n` bytes. Panics if `n > self.len()`.
     pub fn last_n(&self, n: usize) -> &[u8] {
         &self.0[self.len() - n..]
     }
