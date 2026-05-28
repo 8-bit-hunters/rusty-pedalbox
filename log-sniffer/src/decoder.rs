@@ -1,6 +1,9 @@
+use crate::records::{Location, LogLevel, LogMessage, LogMessageBuilder};
 use anyhow::Context;
-use defmt_decoder::{DecodeError, Frame, Location, Locations, StreamDecoder, Table};
-use defmt_parser::Level;
+use defmt_decoder::{
+    DecodeError, Frame, Location as DefmtLocation, Locations, StreamDecoder, Table,
+};
+use defmt_parser::{Level as DefmtLogLevel, Level};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
@@ -33,7 +36,7 @@ pub async fn decoder_task(
 ///
 /// Borrows from a [`Table`] that must outlive this struct - typically owned by [`decoder_task`].
 pub struct Decoder<'a> {
-    stream: Box<dyn StreamDecoder + 'a>,
+    stream: Box<dyn StreamDecoder + Send + 'a>,
     locations: Locations,
 }
 
@@ -80,7 +83,7 @@ impl<'a> Decoder<'a> {
                 }
                 Err(DecodeError::Malformed) => {
                     warn!("Malformed defmt frame, skipping");
-                    break;
+                    continue;
                 }
             }
         }
@@ -97,7 +100,7 @@ struct FrameData {
     pub level: Level,
     pub timestamp: u64,
     pub message: String,
-    pub location: Location,
+    pub location: DefmtLocation,
 }
 
 impl FrameData {
@@ -115,7 +118,7 @@ impl FrameData {
         let timestamp = frame
             .display_timestamp()
             .and_then(|t| firmware_timestamp_to_ns(t.to_string()))
-            .unwrap_or_default();
+            .context("Failed to get timestamp from defmt frame")?;
 
         Ok(Self {
             level,
@@ -126,93 +129,48 @@ impl FrameData {
     }
 }
 
-/// A fully decoded log message, ready for serialization and storage.
-///
-/// Carries two timestamps: `firmware_timestamp` is the device uptime in nanoseconds at the
-/// moment the log was emitted (0 if the firmware provides none), and `received_at_ns` is the
-/// host wall-clock time the bytes arrived.
-#[derive(Debug, serde::Serialize)]
-pub struct LogMessage {
-    #[serde(skip)]
-    pub received_at_ns: u64,
-    /// Firmware-side timestamp (device uptime) as reported by defmt.
-    pub firmware_timestamp: u64,
-    pub level: String,
-    pub message: String,
-    /// Source location formatted as `file:line`.
-    pub location: String,
-}
-
-/// Builds a [`LogMessage`] in two stages.
-///
-/// Frame-derived fields (level, message, location, firmware timestamp) are populated via
-/// `From<FrameData>`. The host-side received timestamp is added separately via
-/// [`received_at_ns`](LogMessageBuilder::received_at_ns), reflecting that these two concerns
-/// are resolved at different points in the decoding pipeline.
-#[derive(Debug, Default)]
-struct LogMessageBuilder {
-    pub received_at_ns: Option<u64>,
-    pub firmware_timestamp: Option<u64>,
-    pub level: Option<String>,
-    pub message: Option<String>,
-    pub location: Option<String>,
-}
-
-impl LogMessageBuilder {
-    /// Sets the host-side received timestamp in nanoseconds since UNIX epoch.
-    pub fn received_at_ns(mut self, timestamp: u64) -> Self {
-        self.received_at_ns = Some(timestamp);
-        self
-    }
-
-    pub fn firmware_timestamp(mut self, timestamp: u64) -> Self {
-        self.firmware_timestamp = Some(timestamp);
-        self
-    }
-
-    pub fn level(mut self, level: Level) -> Self {
-        let level = level.as_str();
-        self.level = Some(level.to_string());
-        self
-    }
-
-    pub fn message(mut self, message: String) -> Self {
-        self.message = Some(message);
-        self
-    }
-
-    pub fn location(mut self, location: Location) -> Self {
-        let location = format!("{}:{}", location.file.display(), location.line);
-        self.location = Some(location);
-        self
-    }
-
-    pub fn build(self) -> anyhow::Result<LogMessage> {
-        let received_at_ns = self.received_at_ns.context("Missing received time")?;
-        let firmware_timestamp = self
-            .firmware_timestamp
-            .context("Missing firmware timestamp")?;
-        let level = self.level.context("Missing level")?;
-        let message = self.message.context("Missing message")?;
-        let location = self.location.context("Missing location")?;
-
-        Ok(LogMessage {
-            received_at_ns,
-            firmware_timestamp,
-            level,
-            message,
-            location,
-        })
-    }
-}
-
 impl From<FrameData> for LogMessageBuilder {
     fn from(frame: FrameData) -> Self {
         LogMessageBuilder::default()
-            .level(frame.level)
-            .firmware_timestamp(frame.timestamp)
+            .level(frame.level.into())
+            .log_time(frame.timestamp)
             .message(frame.message)
-            .location(frame.location)
+            .module(
+                frame
+                    .location
+                    .module
+                    .split("::")
+                    .next()
+                    .unwrap_or(&frame.location.module)
+                    .to_string(),
+            )
+            .location(frame.location.into())
+    }
+}
+
+impl From<DefmtLogLevel> for LogLevel {
+    fn from(value: DefmtLogLevel) -> Self {
+        match value {
+            Level::Trace => LogLevel::Unknown,
+            Level::Debug => LogLevel::Debug,
+            Level::Info => LogLevel::Info,
+            Level::Warn => LogLevel::Warning,
+            Level::Error => LogLevel::Error,
+        }
+    }
+}
+
+impl From<DefmtLocation> for Location {
+    fn from(value: DefmtLocation) -> Self {
+        Self {
+            file: value
+                .file
+                .file_name()
+                .unwrap_or(value.file.as_os_str())
+                .to_string_lossy()
+                .into_owned(),
+            line: value.line,
+        }
     }
 }
 
@@ -251,7 +209,7 @@ pub fn firmware_timestamp_to_ns(s: String) -> Option<u64> {
 }
 
 /// Parses a fractional-seconds string (e.g. `"595306"` or `"595"`) into nanoseconds
-/// by left-aligning it to 9 digits.
+/// by appending trailing zeros to 9 digits.
 fn fraction_to_ns(frac: &str) -> Option<u64> {
     if frac.is_empty() {
         return Some(0);
@@ -268,94 +226,94 @@ fn fraction_to_ns(frac: &str) -> Option<u64> {
 mod tests {
     use super::*;
 
+    fn make_location(file: &str, line: u64, module: &str) -> DefmtLocation {
+        DefmtLocation {
+            file: PathBuf::from(file),
+            line,
+            module: module.to_string(),
+        }
+    }
+
     #[test]
     fn when_converting_frame_data_to_log_message_builder() {
         // Given
-        let location = Location {
-            file: PathBuf::from("/foo/bar.rs"),
-            line: 69,
-            module: "my_module".to_string(),
-        };
         let frame_data = FrameData {
             level: Level::Debug,
             timestamp: 1,
             message: "hello".to_string(),
-            location,
+            location: make_location("/foo/bar.rs", 69, "my_module"),
         };
 
         // When
         let result = LogMessageBuilder::from(frame_data);
 
         // Then
-        assert_eq!(result.level, Some(Level::Debug.as_str().to_string()));
-        assert_eq!(result.location, Some("/foo/bar.rs:69".to_string()));
-        assert_eq!(result.firmware_timestamp, Some(1));
+        assert_eq!(result.level, Some(LogLevel::Debug));
+        assert_eq!(
+            result.location,
+            Some(Location {
+                file: "/foo/bar.rs".to_string(),
+                line: 69
+            })
+        );
+        assert_eq!(result.module, Some("my_module".to_string()));
+        assert_eq!(result.log_time, Some(1));
         assert_eq!(result.message, Some("hello".to_string()));
-        assert!(result.received_at_ns.is_none());
+        assert!(result.publish_time.is_none());
+        assert!(result.timestamp.is_none());
     }
 
     #[test]
     fn when_provided_by_received_time() {
-        // Given
-        let received_at = 1_000_000_000;
-        let builder = LogMessageBuilder::default();
-
-        // When
-        let result = builder.received_at_ns(received_at);
+        // Given / When
+        let result = LogMessageBuilder::default().received_at_ns(1_000_000_000);
 
         // Then
-        assert_eq!(result.received_at_ns, Some(received_at));
+        assert_eq!(result.publish_time, Some(1_000_000_000));
+        let ts = result.timestamp.unwrap();
+        assert_eq!(ts.sec, 1);
+        assert_eq!(ts.nsec, 0);
     }
 
     #[test]
     fn when_received_timestamp_is_not_provided() {
         // Given
-        let location = Location {
-            file: PathBuf::from("/foo/bar.rs"),
-            line: 69,
-            module: "my_module".to_string(),
-        };
-        let frame_data = FrameData {
+        let builder = LogMessageBuilder::from(FrameData {
             level: Level::Debug,
             timestamp: 1,
             message: "hello".to_string(),
-            location,
-        };
-        let builder = LogMessageBuilder::from(frame_data);
+            location: make_location("/foo/bar.rs", 69, "my_module"),
+        });
 
-        // When
-        let result = builder.build();
-
-        // Then
-        assert!(result.is_err());
+        // When / Then
+        assert!(builder.build().is_err());
     }
 
     #[test]
     fn when_build_with_the_two_stage_method() {
         // Given
-        let location = Location {
-            file: PathBuf::from("/foo/bar.rs"),
-            line: 69,
-            module: "my_module".to_string(),
-        };
         let frame_data = FrameData {
             level: Level::Debug,
-            timestamp: 1,
+            timestamp: 1_000_000_000,
             message: "hello".to_string(),
-            location,
+            location: make_location("/foo/bar.rs", 69, "my_module"),
         };
 
         // When
         let result = LogMessageBuilder::from(frame_data)
-            .received_at_ns(0)
+            .received_at_ns(2_000_000_000)
             .build()
             .expect("Failed to build log message");
 
         // Then
-        assert_eq!(result.level, "debug".to_string());
-        assert_eq!(result.location, "/foo/bar.rs:69".to_string());
-        assert_eq!(result.firmware_timestamp, 1);
-        assert_eq!(result.message, "hello".to_string());
-        assert_eq!(result.received_at_ns, 0);
+        assert_eq!(result.level, LogLevel::Debug);
+        assert_eq!(result.location.file, "/foo/bar.rs");
+        assert_eq!(result.location.line, 69);
+        assert_eq!(result.module, "my_module");
+        assert_eq!(result.log_time, 1_000_000_000);
+        assert_eq!(result.message, "hello");
+        assert_eq!(result.publish_time, 2_000_000_000);
+        assert_eq!(result.timestamp.sec, 2);
+        assert_eq!(result.timestamp.nsec, 0);
     }
 }

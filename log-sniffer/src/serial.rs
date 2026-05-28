@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::ops::{Deref, DerefMut};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::sync::mpsc;
 use tokio::time::{Duration, timeout};
@@ -123,29 +124,29 @@ impl<P> SerialReader<P> {
 
 /// Growable byte buffer for accumulating serial reads before processing.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Buffer {
-    buf: Vec<u8>,
+pub struct Buffer(Vec<u8>);
+
+impl Deref for Buffer {
+    type Target = Vec<u8>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for Buffer {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
 }
 
 impl Buffer {
     pub fn new() -> Self {
-        Self { buf: Vec::new() }
-    }
-
-    pub fn extend_from_slice(&mut self, data: &[u8]) {
-        self.buf.extend_from_slice(data);
+        Self(Vec::new())
     }
 
     pub fn last_n(&self, n: usize) -> &[u8] {
-        &self.buf[self.buf.len() - n..]
-    }
-
-    pub fn clear(&mut self) {
-        self.buf.clear();
-    }
-
-    pub fn as_slice(&self) -> &[u8] {
-        &self.buf
+        &self.0[self.len() - n..]
     }
 }
 
