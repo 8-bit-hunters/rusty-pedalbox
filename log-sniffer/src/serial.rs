@@ -1,3 +1,4 @@
+use crate::ConnectionEvent;
 use anyhow::Result;
 use std::ops::{Deref, DerefMut};
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -11,11 +12,12 @@ use tracing::{debug, info, instrument, warn};
 /// Retries every second on open failure or any read error (including EOF and the
 /// 5-second silence timeout). Intended to be spawned as a [`tokio::task`].
 #[instrument(skip(tx))]
-pub async fn serial_port_task(port: String, baudrate: u32, tx: mpsc::Sender<Vec<u8>>) {
+pub async fn serial_port_task(port: String, baudrate: u32, tx: mpsc::Sender<ConnectionEvent>) {
     loop {
         match SerialReader::new(&port, baudrate) {
             Ok(mut reader) => {
                 info!("Listening on {}", reader.port_name);
+                let _ = tx.send(ConnectionEvent::Reconnected).await;
                 if let Err(e) = reader.run(&tx).await {
                     warn!("Connection lost: {e}");
                 }
@@ -37,10 +39,16 @@ pub struct SerialReader<P = SerialStream> {
 }
 
 impl SerialReader<SerialStream> {
+    #[instrument(skip(port, baudrate))]
     pub fn new(port: &str, baudrate: u32) -> Result<Self> {
         let stream = SerialStream::open(&tokio_serial::new(port, baudrate))?;
+
+        stream.clear(tokio_serial::ClearBuffer::Input)?;
+        debug!("Discard stale kernel data");
+
         let port_name = stream.name().unwrap_or_default();
         info!("Opened serial port '{}'", port_name);
+
         Ok(SerialReader {
             port: stream,
             port_name,
@@ -53,14 +61,14 @@ impl<P: AsyncRead + Unpin> SerialReader<P> {
     /// Reads continuously until an error occurs or no data arrives for 5 seconds.
     ///
     /// Any `Err` signals `serial_port_task` to drop the port and reconnect.
-    pub async fn run(&mut self, output_channel: &mpsc::Sender<Vec<u8>>) -> Result<()> {
+    pub async fn run(&mut self, output_channel: &mpsc::Sender<ConnectionEvent>) -> Result<()> {
         loop {
             match timeout(Duration::from_secs(5), self.read()).await {
                 Ok(Ok(0)) => continue,
                 Ok(Ok(n)) => {
                     debug!("Received {} bytes: {:02x?}", n, self.buffer().last_n(n));
                     output_channel
-                        .send(self.buffer().as_slice().to_vec())
+                        .send(ConnectionEvent::Data(self.buffer().as_slice().to_vec()))
                         .await?;
                     self.buffer_mut().clear();
                 }
@@ -69,8 +77,8 @@ impl<P: AsyncRead + Unpin> SerialReader<P> {
                     return Err(e);
                 }
                 Err(_) => {
-                    warn!("Timeout");
-                    return Err(anyhow::anyhow!("No data received for 5 seconds"));
+                    warn!("No data received for 5 seconds");
+                    return Err(anyhow::anyhow!("timeout"));
                 }
             }
         }
@@ -85,11 +93,11 @@ impl<P: AsyncRead + Unpin> SerialReader<P> {
     /// `Ok(0)` from the underlying async read means EOF (device disconnected),
     /// so it is promoted to `Err` rather than silently treated as "no data".
     pub async fn read(&mut self) -> Result<usize> {
-        let mut tmp = [0u8; 64];
-        match self.port.read(&mut tmp).await {
+        let mut temp_buffer = [0u8; 4096];
+        match self.port.read(&mut temp_buffer).await {
             Ok(0) => Err(anyhow::anyhow!("Serial port closed (EOF)")),
             Ok(n) => {
-                self.buf.extend_from_slice(&tmp[..n]);
+                self.buf.extend_from_slice(&temp_buffer[..n]);
                 Ok(n)
             }
             Err(e) => Err(e.into()),
@@ -236,7 +244,11 @@ mod tests {
                 .await
                 .context("Failed to receive message")
                 .unwrap();
-            assert_eq!(received, vec![0x01, 0x02, 0x03]);
+            let received_data = match received {
+                ConnectionEvent::Data(data) => data,
+                ConnectionEvent::Reconnected => panic!("Did not expect reconnection"),
+            };
+            assert_eq!(received_data, vec![0x01, 0x02, 0x03]);
         }
     }
 }
