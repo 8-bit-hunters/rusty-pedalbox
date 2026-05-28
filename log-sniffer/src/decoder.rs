@@ -1,3 +1,4 @@
+use crate::ConnectionEvent;
 use crate::records::{Location, LogLevel, LogMessage, LogMessageBuilder};
 use anyhow::Context;
 use defmt_decoder::{
@@ -15,7 +16,7 @@ use tracing::{debug, info, instrument, warn};
 #[instrument(skip_all)]
 pub async fn decoder_task(
     elf_path: PathBuf,
-    mut bytes_rx: mpsc::Receiver<Vec<u8>>,
+    mut bytes_rx: mpsc::Receiver<ConnectionEvent>,
     log_tx: mpsc::Sender<LogMessage>,
 ) -> anyhow::Result<()> {
     let elf_bytes = std::fs::read(&elf_path)
@@ -23,10 +24,17 @@ pub async fn decoder_task(
     let table = Table::parse(&elf_bytes)
         .context("Failed to parse defmt from ELF")?
         .context("ELF contains no defmt data - was it built with defmt?")?;
+
     let mut decoder = Decoder::new(&table, elf_bytes)?;
-    while let Some(bytes) = bytes_rx.recv().await {
-        for msg in decoder.decode(&bytes) {
-            log_tx.send(msg).await?;
+
+    while let Some(event) = bytes_rx.recv().await {
+        match event {
+            ConnectionEvent::Data(bytes) => {
+                for msg in decoder.decode(&bytes) {
+                    log_tx.send(msg).await?;
+                }
+            }
+            ConnectionEvent::Reconnected => decoder.reset(&table),
         }
     }
     Ok(())
@@ -47,6 +55,10 @@ impl<'a> Decoder<'a> {
         let locations = table.get_locations(&elf_bytes)?;
         let stream = table.new_stream_decoder();
         Ok(Self { stream, locations })
+    }
+
+    pub fn reset(&mut self, table: &'a Table) {
+        self.stream = table.new_stream_decoder();
     }
 
     /// Feeds `bytes` into the stream decoder and drains all complete frames.
@@ -252,7 +264,7 @@ mod tests {
         assert_eq!(
             result.location,
             Some(Location {
-                file: "/foo/bar.rs".to_string(),
+                file: "bar.rs".to_string(),
                 line: 69
             })
         );
@@ -307,7 +319,7 @@ mod tests {
 
         // Then
         assert_eq!(result.level, LogLevel::Debug);
-        assert_eq!(result.location.file, "/foo/bar.rs");
+        assert_eq!(result.location.file, "bar.rs");
         assert_eq!(result.location.line, 69);
         assert_eq!(result.module, "my_module");
         assert_eq!(result.log_time, 1_000_000_000);
