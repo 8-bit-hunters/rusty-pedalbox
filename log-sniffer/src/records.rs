@@ -2,8 +2,8 @@ use anyhow::Context;
 
 /// A fully decoded log message shaped to the `foxglove.Log` schema.
 ///
-/// `received_at_ns` and `firmware_timestamp` are carried for the MCAP message header
-/// (`publish_time` and `log_time` respectively) but excluded from the serialized body.
+/// `publish_time` (host wall-clock) and `log_time` (device uptime) are carried for the MCAP
+/// message header but excluded from the serialized JSON body via `#[serde(skip)]`.
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
 pub struct LogMessage {
     /// Host wall-clock time in nanoseconds since UNIX epoch. Used as MCAP `publish_time`.
@@ -57,7 +57,7 @@ pub struct Location {
 
 /// Builds a [`LogMessage`] in two stages.
 ///
-/// Frame-derived fields (level, message, location, firmware timestamp) are populated via
+/// Frame-derived fields (level, message, location, log_time) are populated via
 /// `From<FrameData>`. The host-side received timestamp is added separately via
 /// [`received_at_ns`](LogMessageBuilder::received_at_ns), reflecting that these two concerns
 /// are resolved at different points in the decoding pipeline.
