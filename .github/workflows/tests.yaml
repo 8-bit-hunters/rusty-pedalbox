@@ -12,9 +12,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: stable
+          toolchain: "1.90"
+          targets: thumbv7em-none-eabihf
+          components: rust-src,rustfmt,clippy
       - uses: actions-rs/cargo@v1
         with:
           command: build-fw
