@@ -17,7 +17,7 @@ embedded-hal = { version = "0.2.7", optional = true }
 critical-section = { version = "1.2.0", optional = true }
 
 [features]
-default = ["defmt"]
+default = []
 defmt = ["dep:defmt", "embassy-stm32?/defmt"]
 stm32 = ["dep:embassy-stm32", "dep:hx711", "dep:embedded-hal", "dep:critical-section"]
 
