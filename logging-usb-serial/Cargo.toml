@@ -1,0 +1,16 @@
+[package]
+name = "logging-usb-serial"
+version = "0.1.0"
+edition = "2024"
+authors.workspace = true
+description.workspace = true
+
+[dependencies]
+
+[features]
+default = ["buffersize-256"]
+buffersize-64 = []
+buffersize-128 = []
+buffersize-256 = []
+buffersize-512 = []
+buffersize-1024 = []
