@@ -15,23 +15,30 @@ repos:
         pass_filenames: false
         types: [rust]
 
-      - id: clippy-host
+      - id: clippy
         name: clippy (host)
-        entry: cargo host-clippy --package pedalbox_lib --package log-sniffer -- -D warnings
+        entry: cargo clippy -- -D warnings
         language: system
         pass_filenames: false
         types: [rust]
 
-      - id: check-firmware
-        name: cargo check (firmware)
-        entry: cargo check --package firmware
+      - id: check
+        name: check (host)
+        entry: cargo check
         language: system
         pass_filenames: false
         types: [rust]
 
       - id: clippy-firmware
         name: clippy (firmware)
-        entry: cargo clippy --package firmware -- -D warnings
+        entry: cargo clippy-fw -- -D warnings
+        language: system
+        pass_filenames: false
+        types: [rust]
+
+      - id: check-firmware
+        name: cargo check (firmware)
+        entry: cargo check-fw
         language: system
         pass_filenames: false
         types: [rust]
