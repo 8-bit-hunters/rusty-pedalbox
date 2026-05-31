@@ -2086,6 +2086,7 @@ name = "pedalbox_lib"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "critical-section",
  "defmt 1.0.1",
  "embassy-stm32",
  "embedded-hal 0.2.7",
