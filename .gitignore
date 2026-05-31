@@ -2,3 +2,6 @@ target
 
 # Jetbrains folder
 .idea
+
+# Claude Code
+.claude
