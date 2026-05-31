@@ -75,10 +75,11 @@ where
     type Error = ();
 
     fn read(&mut self) -> Result<Self::ReturnType, Self::Error> {
-        match self.retrieve() {
+        // Use critical section to avoid preempt by interrupts
+        critical_section::with(|_| match self.retrieve() {
             Ok(v) => Ok(v),
             Err(_) => Err(()),
-        }
+        })
     }
 }
 
