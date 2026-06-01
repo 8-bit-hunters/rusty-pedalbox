@@ -1,8 +1,9 @@
 use core::cmp::min;
 
-const BUFFER_SIZE: usize = 256;
-const MAX_ALLOWED_SIZE: usize = BUFFER_SIZE - 2;
+pub(crate) const BUFFER_SIZE: usize = 256;
+const LIMIT: usize = BUFFER_SIZE - 2;
 
+#[derive(Debug, PartialEq)]
 pub(crate) struct LogBuffer {
     cursor: usize,
     data: [u8; BUFFER_SIZE],
@@ -27,9 +28,8 @@ impl LogBuffer {
     }
 
     pub fn is_almost_full(&self) -> bool {
-        self.cursor >= MAX_ALLOWED_SIZE
+        self.cursor >= LIMIT
     }
-
     pub fn len(&self) -> usize {
         self.cursor
     }
@@ -123,10 +123,9 @@ mod tests {
         }
 
         #[test]
-        fn when_it_is_called_on_a_flushing_buffer() {
+        fn when_the_buffer_is_flushing() {
             // Given
-            let mut buf = LogBuffer::new();
-            buf.mark_flush();
+            let mut buf = LogBuffer::new().and_buffer_is_flushing();
 
             // When
             buf.write(&[1, 2, 3]);
@@ -153,11 +152,9 @@ mod tests {
         use super::*;
 
         #[test]
-        fn when_reset_is_called() {
+        fn when_the_buffer_is_flushing() {
             // Given
-            let mut buf = LogBuffer::new();
-            buf.write(&[1, 2, 3]);
-            buf.mark_flush();
+            let mut buf = LogBuffer::new().with(&[1, 2, 3]).and_buffer_is_flushing();
 
             // When
             buf.reset();
@@ -187,8 +184,7 @@ mod tests {
         #[test]
         fn when_buffer_is_flushing() {
             // Given
-            let mut buf = LogBuffer::new();
-            buf.mark_flush();
+            let buf = LogBuffer::new().and_buffer_is_flushing();
 
             // When
             let result = buf.accepts(BUFFER_SIZE);
@@ -207,6 +203,23 @@ mod tests {
 
             // Then
             assert_eq!(result, false);
+        }
+    }
+
+    trait Preconditions {
+        fn and_buffer_is_flushing(self) -> Self;
+        fn with(self, data: &[u8]) -> Self;
+    }
+
+    impl Preconditions for LogBuffer {
+        fn and_buffer_is_flushing(mut self) -> Self {
+            self.mark_flush();
+            self
+        }
+
+        fn with(mut self, data: &[u8]) -> Self {
+            self.write(data);
+            self
         }
     }
 }
