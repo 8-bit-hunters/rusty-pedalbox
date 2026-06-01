@@ -6,6 +6,8 @@ authors.workspace = true
 description.workspace = true
 
 [dependencies]
+critical-section = "1.2.0"
+portable-atomic = "1.13.1"
 
 [features]
 default = ["buffersize-256"]
@@ -14,3 +16,7 @@ buffersize-128 = []
 buffersize-256 = []
 buffersize-512 = []
 buffersize-1024 = []
+
+[dev-dependencies]
+critical-section = { version = "1.2.0", features = ["std"] }
+pollster = "0.4.0"
