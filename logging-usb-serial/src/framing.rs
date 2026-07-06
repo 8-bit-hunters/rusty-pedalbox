@@ -21,9 +21,7 @@ pub fn write_frame(frame_type: FrameType, payload: &[u8], out: &mut [u8]) -> Opt
     if size_to_write > out.len() {
         return None;
     }
-    let payload_len = (payload.len() as u16).to_le_bytes();
-    let header: [u8; HEADER_LEN] = [0xB5, 0x62, frame_type as u8, payload_len[0], payload_len[1]];
-    out[0..HEADER_LEN].copy_from_slice(&header);
+    out[0..HEADER_LEN].copy_from_slice(&frame_header(frame_type, payload.len()));
     out[HEADER_LEN..size_to_write].copy_from_slice(payload);
 
     Some(size_to_write)
@@ -33,6 +31,18 @@ pub fn write_sensor_frame(sample: &SensorSample, out: &mut [u8]) -> Option<usize
     let mut payload = [0u8; MAX_SENSOR_PAYLOAD];
     let encode = postcard::to_slice(sample, &mut payload).ok()?;
     write_frame(FrameType::Telemetry, encode, out)
+}
+
+pub fn frame_header(frame_type: FrameType, payload_length: usize) -> [u8; HEADER_LEN] {
+    let payload_len = (payload_length as u16).to_le_bytes();
+    const MAGIC_BYTES: [u8; 2] = [0xC0, 0xFE];
+    [
+        MAGIC_BYTES[0],
+        MAGIC_BYTES[1],
+        frame_type as u8,
+        payload_len[0],
+        payload_len[1],
+    ]
 }
 
 #[cfg(test)]
@@ -61,7 +71,7 @@ mod tests {
             let len = written.unwrap();
             assert_eq!(
                 &out[..len],
-                &[0xB5, 0x62, 0x02, 0x04, 0x00, 0xDE, 0xAD, 0xBE, 0xEF],
+                &[0xC0, 0xFE, 0x02, 0x04, 0x00, 0xDE, 0xAD, 0xBE, 0xEF],
                 "frame should be [magic][type][len LE][payload]"
             );
         }
@@ -96,7 +106,7 @@ mod tests {
             );
             assert_eq!(
                 &out[..HEADER_LEN],
-                &[0xB5, 0x62, 0x02, 0x00, 0x00],
+                &[0xC0, 0xFE, 0x02, 0x00, 0x00],
                 "header should carry a LEN field of 0"
             );
         }
@@ -143,7 +153,7 @@ mod tests {
             let len = written.expect("frame should fit");
             assert_eq!(
                 &out[0..3],
-                &[0xB5, 0x62, 0x02],
+                &[0xC0, 0xFE, 0x02],
                 "frame should start with [magic][telemetry type]"
             );
             let payload = &out[HEADER_LEN..len];
