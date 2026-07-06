@@ -1817,8 +1817,10 @@ name = "logging-usb-serial"
 version = "0.1.0"
 dependencies = [
  "critical-section",
+ "pedalbox-telemetry",
  "pollster",
  "portable-atomic",
+ "postcard",
 ]
 
 [[package]]
