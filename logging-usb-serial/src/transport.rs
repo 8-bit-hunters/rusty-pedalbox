@@ -7,7 +7,21 @@ use crate::controller::Controller;
 use crate::framing;
 use crate::framing::{FrameType, HEADER_LEN, MAX_SENSOR_PAYLOAD, frame_header, write_sensor_frame};
 use core::cmp::max;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Channel;
 use pedalbox_telemetry::SensorSample;
+
+/// Samples queued by [`send_sensor`] awaiting the next USB flush. Holds up to 8; further
+/// samples are dropped while full.
+pub static SENSOR_CHANNEL: Channel<CriticalSectionRawMutex, SensorSample, 8> = Channel::new();
+
+/// Queue a sensor sample for the next USB flush.
+///
+/// Non-blocking: if the queue is full the sample is silently dropped rather than blocking
+/// the caller (a pedal-monitor task).
+pub fn send_sensor(sample: SensorSample) {
+    let _ = SENSOR_CHANNEL.try_send(sample);
+}
 
 pub trait PacketSink {
     type Error;
@@ -226,7 +240,8 @@ mod tests {
             assert_eq!(sink.packets[1], [1, 2, 3, 4]);
             assert_eq!(sink.packets[2], [5, 6, 7, 8]);
             assert_eq!(
-                sink.packets[3], [9, 10],
+                sink.packets[3],
+                [9, 10],
                 "last chunk is short, so no trailing zero-length packet"
             );
         }
@@ -267,9 +282,32 @@ mod tests {
     mod test_send_sensor {
         use super::*;
 
+        fn sample(ch: u8) -> SensorSample {
+            SensorSample {
+                timestamp_ms: ch as u32,
+                channel_id: ch,
+                value: Value::U16(ch as u16),
+            }
+        }
+
         #[test]
         fn when_the_queue_is_full() {
-            todo!()
+            // When: send one more than the queue capacity (8)
+            for ch in 0..9 {
+                send_sensor(sample(ch));
+            }
+
+            // Then: the first 8 are queued in order, the 9th was dropped
+            for ch in 0..8 {
+                let received = SENSOR_CHANNEL
+                    .try_receive()
+                    .expect("queue should hold the first 8 samples");
+                assert_eq!(received, sample(ch), "samples are dequeued in send order");
+            }
+            assert!(
+                SENSOR_CHANNEL.try_receive().is_err(),
+                "the 9th sample should have been dropped, not queued"
+            );
         }
     }
 }

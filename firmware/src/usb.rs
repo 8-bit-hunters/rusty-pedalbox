@@ -107,6 +107,19 @@ impl PedalboxConfiguration for embassy_usb::Config<'_> {
         config.manufacturer = Some("8 BitHunters");
         config.product = Some("Rusty Pedalbox");
         config.serial_number = Some("0001");
+        // With `log-usb`, the CDC-ACM logging interface uses an Interface Association
+        // Descriptor, so the device must advertise the IAD (Misc / Common Class) triple.
+        #[cfg(feature = "log-usb")]
+        {
+            config.device_class = 0xEF;
+            config.device_sub_class = 0x02;
+            config.device_protocol = 0x01;
+            config.composite_with_iads = true;
+        }
         config
     }
 }
+
+/// CDC-ACM class state, used only when the `log-usb` backend is selected.
+#[cfg(feature = "log-usb")]
+pub static CDC_STATE: StaticCell<embassy_usb::class::cdc_acm::State<'static>> = StaticCell::new();
