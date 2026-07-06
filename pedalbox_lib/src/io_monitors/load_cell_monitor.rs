@@ -12,6 +12,7 @@ where
     pub range: R,
     pub load_cell: L,
     pub output_channel: &'static AtomicI16,
+    pub raw_channel: Option<&'static T::Atomic>,
 }
 
 pub struct LoadCellMonitor<L, R, T>
@@ -24,6 +25,7 @@ where
     range: R,
     load_cell: L,
     output_channel: &'static AtomicI16,
+    raw_channel: Option<&'static T::Atomic>,
 }
 
 impl<L, R, T> LoadCellMonitor<L, R, T>
@@ -41,11 +43,16 @@ where
             range: config.range,
             load_cell: config.load_cell,
             output_channel: config.output_channel,
+            raw_channel: config.raw_channel,
         }
     }
 
     pub fn run(&mut self) {
         if let Ok(raw_reading) = self.load_cell.read() {
+            if let Some(raw_channel) = self.raw_channel {
+                raw_reading.store_in(raw_channel, Ordering::Relaxed);
+            }
+
             self.range.update(raw_reading);
 
             let mapped_reading = raw_reading.map_to_i16(self.range.get_min(), self.range.get_max());
@@ -67,7 +74,7 @@ mod load_cell_monitor_testing {
     use crate::calibration::fixed::FixedRange;
     use crate::io_monitors::load_cell_monitor::{LoadCellMonitor, LoadCellMonitorConfig};
     use alloc::boxed::Box;
-    use core::sync::atomic::{AtomicI16, Ordering};
+    use core::sync::atomic::{AtomicI16, AtomicI32, Ordering};
     use rstest::rstest;
 
     #[derive(Eq, PartialEq, Debug, Copy, Clone)]
@@ -84,6 +91,18 @@ mod load_cell_monitor_testing {
         }
     }
 
+    #[derive(Eq, PartialEq, Debug, Copy, Clone)]
+    struct FailingLoadCell {}
+
+    impl LoadCell for FailingLoadCell {
+        type ReturnType = i32;
+        type Error = ();
+
+        fn read(&mut self) -> Result<Self::ReturnType, Self::Error> {
+            Err(())
+        }
+    }
+
     #[test]
     fn when_creating_new_monitor() {
         // Given
@@ -96,6 +115,7 @@ mod load_cell_monitor_testing {
             range,
             load_cell,
             output_channel: Box::leak(Box::new(AtomicI16::default())),
+            raw_channel: None,
         };
 
         // When
@@ -109,12 +129,12 @@ mod load_cell_monitor_testing {
     }
 
     #[rstest]
-    #[case(100, 0, 100, i16::MAX)]
-    #[case(50, 0, 100, -1)]
-    #[case(0, 0, 100, i16::MIN)]
-    #[case(101, 50, 100, i16::MAX)]
-    #[case(49, 50, 100, i16::MIN)]
-    fn when_value_inside_the_input_range(
+    #[case::value_is_the_max(100, 0, 100, i16::MAX)]
+    #[case::value_is_in_the_middle(50, 0, 100, -1)]
+    #[case::value_is_the_min(0, 0, 100, i16::MIN)]
+    #[case::value_is_over_the_max(101, 50, 100, i16::MAX)]
+    #[case::value_is_under_the_min(49, 50, 100, i16::MIN)]
+    fn when_mapping_to_range(
         #[case] value: i32,
         #[case] minimum: i32,
         #[case] maximum: i32,
@@ -130,6 +150,7 @@ mod load_cell_monitor_testing {
                 range,
                 load_cell,
                 output_channel: output,
+                raw_channel: None,
             },
         );
 
@@ -139,5 +160,62 @@ mod load_cell_monitor_testing {
         // Then
         let result = output.load(Ordering::Relaxed);
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn when_running_with_configured_raw_channel() {
+        // Given
+        let value: i32 = 100;
+        let load_cell = MockLoadCell { value };
+        let output = Box::leak(Box::new(AtomicI16::default()));
+        let raw = Box::leak(Box::new(AtomicI32::default()));
+        let range = FixedRange::default();
+        let mut monitor = LoadCellMonitor::new(
+            "test",
+            LoadCellMonitorConfig {
+                range,
+                load_cell,
+                output_channel: output,
+                raw_channel: Some(raw),
+            },
+        );
+
+        // When
+        monitor.run();
+
+        // Then
+        assert_eq!(
+            raw.load(Ordering::Relaxed),
+            value,
+            "raw load cell reading should be published to the raw channel"
+        );
+    }
+
+    #[test]
+    fn when_reading_fails() {
+        // Given
+        let sentinel: i32 = 777;
+        let output = Box::leak(Box::new(AtomicI16::default()));
+        let raw = Box::leak(Box::new(AtomicI32::new(sentinel)));
+        let range = FixedRange::default();
+        let mut monitor = LoadCellMonitor::new(
+            "test",
+            LoadCellMonitorConfig {
+                range,
+                load_cell: FailingLoadCell {},
+                output_channel: output,
+                raw_channel: Some(raw),
+            },
+        );
+
+        // When
+        monitor.run();
+
+        // Then
+        assert_eq!(
+            raw.load(Ordering::Relaxed),
+            sentinel,
+            "failed read must leave the raw channel unchanged"
+        );
     }
 }

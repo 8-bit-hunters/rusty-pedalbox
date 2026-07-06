@@ -13,6 +13,7 @@ where
     pub adc: Adc,
     pub pin: Pin,
     pub output_channel: &'static AtomicI16,
+    pub raw_channel: Option<&'static T::Atomic>,
 }
 
 pub struct AnalogMonitor<Adc, Pin, R, T>
@@ -26,6 +27,7 @@ where
     adc: Adc,
     pin: Pin,
     output_channel: &'static AtomicI16,
+    raw_channel: Option<&'static T::Atomic>,
 }
 
 impl<Adc, Pin, R, T> AnalogMonitor<Adc, Pin, R, T>
@@ -44,11 +46,15 @@ where
             pin: config.pin,
             range: config.range,
             output_channel: config.output_channel,
+            raw_channel: config.raw_channel,
         }
     }
 
     pub fn run(&mut self) {
         let raw_reading = self.adc.read(&mut self.pin);
+        if let Some(raw_channel) = self.raw_channel {
+            raw_reading.store_in(raw_channel, Ordering::Relaxed);
+        }
 
         self.range.update(raw_reading);
 
@@ -68,7 +74,7 @@ mod analog_monitor_testing {
     use crate::calibration::fixed::FixedRange;
     use crate::io_monitors::analog_monitor::{AnalogMonitor, AnalogMonitorConfig};
     use alloc::boxed::Box;
-    use core::sync::atomic::{AtomicI16, Ordering};
+    use core::sync::atomic::{AtomicI16, AtomicU16, Ordering};
     use rstest::rstest;
 
     #[derive(Eq, PartialEq, Debug, Copy, Clone)]
@@ -102,6 +108,7 @@ mod analog_monitor_testing {
             adc: adc.clone(),
             pin: pin.clone(),
             output_channel: Box::leak(Box::new(AtomicI16::default())),
+            raw_channel: None,
         };
 
         // When
@@ -116,13 +123,12 @@ mod analog_monitor_testing {
     }
 
     #[rstest]
-    #[case(100, 0, 100, i16::MAX)]
-    #[case(50, 0, 100, -1)]
-    #[case(0, 0, 100, i16::MIN)]
-    #[case(200, 100, 200, i16::MAX)]
-    #[case(150, 100, 200, -1)]
-    #[case(100, 100, 200, i16::MIN)]
-    fn when_value_inside_the_input_range(
+    #[case::value_is_the_max(100, 0, 100, i16::MAX)]
+    #[case::value_is_in_the_middle(50, 0, 100, -1)]
+    #[case::value_is_the_min(0, 0, 100, i16::MIN)]
+    #[case::value_is_over_the_max(201, 100, 200, i16::MAX)]
+    #[case::value_is_under_the_min(99, 100, 200, i16::MIN)]
+    fn when_mapping_to_range(
         #[case] value: u16,
         #[case] minimum: u16,
         #[case] maximum: u16,
@@ -141,6 +147,7 @@ mod analog_monitor_testing {
                 adc,
                 pin,
                 output_channel: output,
+                raw_channel: None,
             },
         );
 
@@ -150,5 +157,37 @@ mod analog_monitor_testing {
         // Then
         let result = output.load(Ordering::Relaxed);
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn when_running_with_configured_raw_channel() {
+        // Given
+        let value: u16 = 1234;
+        let adc = MockAdc {};
+        let pin = MockPin { value };
+        let output = Box::leak(Box::new(AtomicI16::default()));
+        let raw = Box::leak(Box::new(AtomicU16::default()));
+        let range = FixedRange::default();
+
+        let mut monitor = AnalogMonitor::new(
+            "test",
+            AnalogMonitorConfig {
+                range,
+                adc,
+                pin,
+                output_channel: output,
+                raw_channel: Some(raw),
+            },
+        );
+
+        // When
+        monitor.run();
+
+        // Then
+        assert_eq!(
+            raw.load(Ordering::Relaxed),
+            value,
+            "raw ADC reading should be published to the raw channel"
+        );
     }
 }
