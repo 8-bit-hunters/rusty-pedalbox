@@ -263,4 +263,13 @@ mod tests {
             );
         }
     }
+
+    mod test_send_sensor {
+        use super::*;
+
+        #[test]
+        fn when_the_queue_is_full() {
+            todo!()
+        }
+    }
 }

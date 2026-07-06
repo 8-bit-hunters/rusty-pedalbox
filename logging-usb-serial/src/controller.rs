@@ -3,6 +3,8 @@ use core::cell::UnsafeCell;
 use core::sync::atomic::Ordering;
 use portable_atomic::{AtomicBool, AtomicUsize};
 
+pub(crate) const CONTROLLER: Controller = Controller::new();
+
 pub(crate) struct Controller {
     active_buffer: AtomicUsize,
     enabled: AtomicBool, // The atomic handles the state mutation without needing exclusive access.
