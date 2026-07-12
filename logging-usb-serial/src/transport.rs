@@ -4,12 +4,12 @@
 //! USB `Sender` implementation for on-device verification.
 
 use crate::controller::Controller;
-use crate::framing;
-use crate::framing::{FrameType, HEADER_LEN, MAX_SENSOR_PAYLOAD, frame_header, write_sensor_frame};
-use core::cmp::max;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use pedalbox_telemetry::SensorSample;
+use pedalbox_telemetry::wire_protocol::{
+    FrameType, HEADER_LEN, MAX_SENSOR_PAYLOAD, frame_header, write_sensor_frame,
+};
 
 /// Samples queued by [`send_sensor`] awaiting the next USB flush. Holds up to 8; further
 /// samples are dropped while full.
@@ -66,8 +66,8 @@ pub async fn flush_defmt<S: PacketSink>(
 mod tests {
     extern crate std;
     use super::*;
-    use crate::framing::HEADER_LEN;
     use pedalbox_telemetry::Value;
+    use pedalbox_telemetry::wire_protocol::HEADER_LEN;
     use std::vec::Vec;
 
     /// A [`PacketSink`] that records every packet it is asked to write, and can be told to

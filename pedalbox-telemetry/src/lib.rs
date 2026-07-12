@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod wire_protocol;
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Value {
     U16(u16),

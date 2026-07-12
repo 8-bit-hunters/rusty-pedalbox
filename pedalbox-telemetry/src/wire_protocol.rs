@@ -1,14 +1,15 @@
-//! The multiplexed serial transport frame: `[0xB5 0x62][TYPE][LEN u16 LE][PAYLOAD]`.
+//! The multiplexed serial transport frame: `[0xC0 0xFE][TYPE][LEN u16 LE][PAYLOAD]`.
 //!
 //! `TYPE` selects the stream on the shared USB pipe (`0x01` defmt log, `0x02` sensor).
 //! The payload is opaque here; for sensor frames it is a postcard-encoded
-//! [`pedalbox_telemetry::SensorSample`].
+//! [`crate::SensorSample`].
 
-use pedalbox_telemetry::SensorSample;
+use crate::SensorSample;
 
 pub const HEADER_LEN: usize = 5; // 2 magic + 1 type + 2 len
 pub const MAX_SENSOR_PAYLOAD: usize = 16; //SensorSample is at most ~11 postcard bytes
 // (u32 varint ≤5, channel 1, value = 1 tag + ≤4), so 16 is safe headroom.
+const MAGIC_BYTES: [u8; 2] = [0xC0, 0xFE];
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum FrameType {
@@ -35,7 +36,6 @@ pub fn write_sensor_frame(sample: &SensorSample, out: &mut [u8]) -> Option<usize
 
 pub fn frame_header(frame_type: FrameType, payload_length: usize) -> [u8; HEADER_LEN] {
     let payload_len = (payload_length as u16).to_le_bytes();
-    const MAGIC_BYTES: [u8; 2] = [0xC0, 0xFE];
     [
         MAGIC_BYTES[0],
         MAGIC_BYTES[1],
@@ -134,7 +134,7 @@ mod tests {
 
     mod test_write_sensor_frame {
         use super::*;
-        use pedalbox_telemetry::Value;
+        use crate::Value;
 
         #[test]
         fn when_writing_a_sensor_frame() {
