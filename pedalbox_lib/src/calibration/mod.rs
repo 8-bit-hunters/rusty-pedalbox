@@ -1,5 +1,6 @@
 use bytemuck::{Pod, Zeroable};
 use core::ops::{Add, AddAssign, Div, Sub, SubAssign};
+use core::sync::atomic::{AtomicI32, AtomicU16, Ordering};
 
 pub mod adaptive;
 pub mod fixed;
@@ -21,14 +22,19 @@ pub trait Int:
     + AddAssign
     + SubAssign
 {
+    type Atomic: 'static;
+
     fn zero() -> Self;
     fn one() -> Self;
 
     fn saturating_sub(self, rhs: Self) -> Self;
     fn saturating_add(self, rhs: Self) -> Self;
+    fn store_in(self, cell: &Self::Atomic, order: Ordering);
 }
 
 impl Int for u16 {
+    type Atomic = AtomicU16;
+
     fn zero() -> Self {
         0
     }
@@ -42,10 +48,16 @@ impl Int for u16 {
 
     fn saturating_add(self, rhs: Self) -> Self {
         self.saturating_add(rhs)
+    }
+
+    fn store_in(self, cell: &Self::Atomic, order: Ordering) {
+        cell.store(self, order);
     }
 }
 
 impl Int for i32 {
+    type Atomic = AtomicI32;
+
     fn zero() -> Self {
         0
     }
@@ -59,6 +71,10 @@ impl Int for i32 {
 
     fn saturating_add(self, rhs: Self) -> Self {
         self.saturating_add(rhs)
+    }
+
+    fn store_in(self, cell: &Self::Atomic, order: Ordering) {
+        cell.store(self, order);
     }
 }
 
