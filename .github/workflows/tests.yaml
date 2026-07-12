@@ -25,6 +25,17 @@ jobs:
         with:
           command: build
           args: -p log-sniffer
-      - uses: actions-rs/cargo@v1
+      - name: Test default members
+        uses: actions-rs/cargo@v1
         with:
           command: test
+      - name: Test pedalbox-telemetry (default / no_std)
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: -p pedalbox-telemetry
+      - name: Test pedalbox-telemetry (std feature)
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: -p pedalbox-telemetry --features std
