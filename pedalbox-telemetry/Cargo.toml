@@ -5,6 +5,11 @@ edition = "2024"
 authors.workspace = true
 description.workspace = true
 
+[features]
+# Enables the heap-backed (growable) FrameReader buffer. Off by default so the firmware
+# keeps the fixed-capacity, allocation-free reader; hosts (e.g. log-sniffer) turn it on.
+std = []
+
 [dependencies]
 postcard = "1.1.3"
 serde = { version = "1.0.228", default-features = false, features = ["derive"] }

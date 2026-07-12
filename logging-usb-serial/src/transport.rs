@@ -8,7 +8,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use pedalbox_telemetry::SensorSample;
 use pedalbox_telemetry::wire_protocol::{
-    FrameType, HEADER_LEN, MAX_SENSOR_PAYLOAD, frame_header, write_sensor_frame,
+    FrameType, Header, MAX_SENSOR_PAYLOAD, frame_header, write_sensor_frame,
 };
 
 /// Samples queued by [`send_sensor`] awaiting the next USB flush. Holds up to 8; further
@@ -33,7 +33,7 @@ pub async fn send_sensor_frame<S: PacketSink>(
     sample: &SensorSample,
     sink: &mut S,
 ) -> Result<(), S::Error> {
-    let mut frame = [0u8; HEADER_LEN + MAX_SENSOR_PAYLOAD];
+    let mut frame = [0u8; Header::LEN + MAX_SENSOR_PAYLOAD];
     if let Some(length) = write_sensor_frame(sample, &mut frame) {
         sink.write_packet(&frame[..length]).await?;
     }
@@ -67,7 +67,7 @@ mod tests {
     extern crate std;
     use super::*;
     use pedalbox_telemetry::Value;
-    use pedalbox_telemetry::wire_protocol::HEADER_LEN;
+    use pedalbox_telemetry::wire_protocol::Header;
     use std::vec::Vec;
 
     /// A [`PacketSink`] that records every packet it is asked to write, and can be told to
@@ -136,7 +136,7 @@ mod tests {
                 &[0xC0, 0xFE, 0x02],
                 "packet is a telemetry frame"
             );
-            let decoded: SensorSample = postcard::from_bytes(&packet[HEADER_LEN..])
+            let decoded: SensorSample = postcard::from_bytes(&packet[Header::LEN..])
                 .expect("payload should be a valid SensorSample");
             assert_eq!(
                 decoded, sample,
