@@ -2,6 +2,8 @@
 #![no_main]
 
 mod board;
+#[cfg(feature = "log-usb")]
+mod telemetry;
 mod usb;
 
 use core::sync::atomic::Ordering;
@@ -35,6 +37,8 @@ use pedalbox_lib::fmt::warn;
 use pedalbox_lib::io_monitors::{
     AnalogMonitor, AnalogMonitorConfig, LoadCellMonitor, LoadCellMonitorConfig,
 };
+#[cfg(feature = "log-usb")]
+use telemetry::{BRAKE_RAW, CLUTCH_RAW, GAS_RAW, telemetry_task};
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -98,6 +102,10 @@ async fn main(spawner: Spawner) {
             adc: Adc::new(board.gas_adc),
             pin: board.gas_potentiometer,
             output_channel: &AXIS_X,
+            #[cfg(feature = "log-usb")]
+            raw_channel: Some(&GAS_RAW),
+            #[cfg(feature = "log-rtt")]
+            raw_channel: None,
         },
     );
     spawner.spawn(input_monitor_x(gas_pedal).expect("Failed to create input monitor X task token"));
@@ -110,6 +118,10 @@ async fn main(spawner: Spawner) {
             load_cell: Hx711::new(Delay, board.brake_data, board.brake_clock)
                 .expect("Failed to create HX711 driver"),
             output_channel: &AXIS_Y,
+            #[cfg(feature = "log-usb")]
+            raw_channel: Some(&BRAKE_RAW),
+            #[cfg(feature = "log-rtt")]
+            raw_channel: None,
         },
     );
     spawner
@@ -123,10 +135,17 @@ async fn main(spawner: Spawner) {
             adc: Adc::new(board.clutch_adc),
             pin: board.clutch_potentiometer,
             output_channel: &AXIS_Z,
+            #[cfg(feature = "log-usb")]
+            raw_channel: Some(&CLUTCH_RAW),
+            #[cfg(feature = "log-rtt")]
+            raw_channel: None,
         },
     );
     spawner
         .spawn(input_monitor_z(clutch_pedal).expect("Failed to create input monitor Z task token"));
+
+    #[cfg(feature = "log-usb")]
+    spawner.spawn(telemetry_task().expect("Failed to create telemetry task token"));
 }
 
 #[embassy_executor::task]
