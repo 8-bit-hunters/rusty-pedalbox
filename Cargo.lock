@@ -1801,6 +1801,8 @@ dependencies = [
  "defmt-parser",
  "log",
  "mcap",
+ "pedalbox-telemetry",
+ "postcard",
  "serde",
  "serde_json",
  "time",
