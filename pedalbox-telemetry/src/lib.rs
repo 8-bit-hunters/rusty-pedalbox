@@ -83,3 +83,19 @@ pub struct SensorSample {
     /// The reading itself.
     pub value: Value,
 }
+
+/// Decodes a [`Telemetry`](wire_protocol::FrameType::Telemetry) frame's postcard payload back
+/// into a `SensorSample` — the receiving-side counterpart to
+/// [`write_sensor_frame`](wire_protocol::write_sensor_frame)'s encoding.
+///
+/// `value` is the frame *payload* (as handed out by
+/// [`parse_frame`](wire_protocol::parse_frame) or
+/// [`FrameReader`](wire_protocol::FrameReader)), not a whole frame. Returns a
+/// [`postcard::Error`] if the bytes are not a valid `SensorSample` encoding.
+impl TryFrom<&[u8]> for SensorSample {
+    type Error = postcard::Error;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        postcard::from_bytes::<Self>(value)
+    }
+}
