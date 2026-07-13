@@ -3,13 +3,45 @@
 //! `TYPE` selects the stream on the shared USB pipe (`0x01` defmt log, `0x02` sensor).
 //! The payload is opaque here; for sensor frames it is a postcard-encoded
 //! [`crate::SensorSample`].
+//!
+//! # Layout
+//!
+//! ```text
+//! ┌──────┬──────┬──────┬───────────┬─────────────────┐
+//! │ 0xC0 │ 0xFE │ TYPE │  LEN (LE) │  PAYLOAD (LEN B) │
+//! └──────┴──────┴──────┴───────────┴─────────────────┘
+//!  └──── magic ───┘  1B    2B          LEN bytes
+//! ```
+//!
+//! The 5-byte header ([`Header::LEN`]) is a 2-byte magic, a 1-byte [`FrameType`], and a
+//! 2-byte little-endian payload length.
+//!
+//! # Two sides
+//!
+//! - **Encode** (firmware): [`frame_header`], [`write_frame`], and [`write_sensor_frame`]
+//!   serialize a frame into a caller-provided buffer.
+//! - **Decode** (host): [`parse_frame`] is a pure, allocation-free parser over a byte slice;
+//!   [`FrameReader`] wraps it with a fixed internal buffer so a caller can push arbitrary
+//!   chunks and drain whole frames. Both resynchronize past corruption by scanning for the
+//!   next magic, so a lost or garbled byte costs at most one frame.
 
 use crate::SensorSample;
 #[cfg(feature = "std")]
 use alloc::vec::Vec;
 
-pub const MAX_SENSOR_PAYLOAD: usize = 16; //SensorSample is at most ~11 postcard bytes
-// (u32 varint ≤5, channel 1, value = 1 tag + ≤4), so 16 is safe headroom.
+/// Upper bound on a [`SensorSample`]'s postcard encoding, used to size scratch buffers in
+/// [`write_sensor_frame`].
+///
+/// A sample is at most ~11 bytes (`u32` varint ≤ 5, `channel_id` 1, value = 1 tag + ≤ 4),
+/// so 16 leaves safe headroom. This bounds the *sensor* payload only — see [`MAX_PAYLOAD`]
+/// for the generic frame cap.
+pub const MAX_SENSOR_PAYLOAD: usize = 16;
+/// Largest payload the parser will accept in a single frame.
+///
+/// Any header advertising more than this is rejected as a false magic (see [`parse_frame`]),
+/// which bounds how far a corrupt length field can desynchronize the stream. Matches the
+/// firmware transmit buffer size; log frames can carry lengths close to this, whereas sensor
+/// frames stay within [`MAX_SENSOR_PAYLOAD`].
 pub const MAX_PAYLOAD: usize = 256;
 
 /// A stateful accumulator that recovers whole frames from a byte stream via [`parse_frame`].
@@ -18,6 +50,26 @@ pub const MAX_PAYLOAD: usize = 256;
 /// (allocation-free, drops its backlog on overflow) or a growable [`Vec`] under `std` (never
 /// drops — for hosts that read in large chunks). A yielded [`Frame`] borrows the buffer, so it
 /// must be dropped before the next `push`/`next_frame` call.
+///
+/// # Example
+///
+/// A frame that arrives in two chunks is buffered until it is complete:
+///
+/// ```
+/// use pedalbox_telemetry::wire_protocol::{Frame, FrameReader, FrameType};
+///
+/// let mut reader = FrameReader::new();
+///
+/// reader.push(&[0xC0, 0xFE, 0x02, 0x04, 0x00, 0xDE]); // header + first payload byte
+/// assert!(reader.next_frame().is_none());             // payload still incomplete
+///
+/// reader.push(&[0xAD, 0xBE, 0xEF]);                    // the rest of the payload
+/// assert_eq!(
+///     reader.next_frame(),
+///     Some(Frame { frame_type: FrameType::Telemetry, payload: &[0xDE, 0xAD, 0xBE, 0xEF] }),
+/// );
+/// assert!(reader.next_frame().is_none());              // nothing left
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FrameReader {
     storage: Buffer,
@@ -25,6 +77,7 @@ pub struct FrameReader {
 }
 
 impl FrameReader {
+    /// Creates an empty reader.
     pub fn new() -> Self {
         Self {
             storage: Buffer::new(),
@@ -32,6 +85,10 @@ impl FrameReader {
         }
     }
 
+    /// Appends `bytes` to the internal buffer.
+    ///
+    /// If the buffer lacks room, it is reset first (dropping any unparseable backlog); a single
+    /// push larger than the buffer is discarded entirely.
     pub fn push(&mut self, bytes: &[u8]) {
         // Reclaim the previously yielded frame before appending. Its borrow has ended (this
         // takes `&mut self`), so dropping its bytes now keeps offsets valid and leaves no stale
@@ -40,6 +97,10 @@ impl FrameReader {
         self.storage.extend(bytes);
     }
 
+    /// Returns the next complete frame, or `None` if more bytes are needed.
+    ///
+    /// Leading garbage is skipped automatically. The returned [`Frame`] borrows the reader's
+    /// buffer, so its bytes are held until the next call — which is when they are reclaimed.
     pub fn next_frame(&mut self) -> Option<Frame<'_>> {
         self.reclaim();
         self.advance_to_frame()?;
@@ -172,9 +233,12 @@ impl Storage for GrowableBuffer {
     }
 }
 
+/// Which logical stream a frame belongs to, carried in the header's type byte.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum FrameType {
+    /// A raw defmt chunk (`0x01`); the payload is fed to the defmt stream decoder.
     Log = 0x01,
+    /// A telemetry sample (`0x02`); the payload is a postcard-encoded [`SensorSample`].
     Telemetry = 0x02,
 }
 
@@ -190,19 +254,60 @@ impl TryFrom<u8> for FrameType {
     }
 }
 
+/// A parsed frame: its [`FrameType`] and a borrowed slice of its payload.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Frame<'a> {
+    /// The stream this frame belongs to.
     pub frame_type: FrameType,
+    /// The payload bytes, borrowed from the input buffer.
     pub payload: &'a [u8],
 }
 
+/// The result of a single [`parse_frame`] call.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ParseOutcome<'a> {
+    /// A complete frame was found at the front of the buffer. `consumed` is the total number
+    /// of bytes it occupied (header + payload) and should be dropped before parsing again.
     Frame { frame: Frame<'a>, consumed: usize },
+    /// The buffer holds the start of a frame but not all of it; call again after more bytes
+    /// arrive without discarding what is already buffered.
     NeedMore,
+    /// The front of the buffer is not a valid frame. Drop `skip` bytes and re-parse; this
+    /// advances to the next candidate magic (a trailing partial magic is preserved).
     Resync { skip: usize },
 }
 
+/// Parses one frame from the front of `buf` without allocating or consuming input.
+///
+/// This is the pure core of the receive side; [`FrameReader`] wraps it with buffering. It
+/// scans the whole buffer for the magic and validates the header ([`FrameType`] known,
+/// length ≤ [`MAX_PAYLOAD`]); a false magic, unknown type, or oversized length all yield
+/// [`Resync`](ParseOutcome::Resync) so the stream can recover from corruption. Never panics
+/// for any input.
+///
+/// # Example
+///
+/// The three outcomes, from the same parser:
+///
+/// ```
+/// use pedalbox_telemetry::wire_protocol::{parse_frame, Frame, FrameType, ParseOutcome};
+///
+/// // A complete telemetry frame.
+/// let frame = [0xC0, 0xFE, 0x02, 0x02, 0x00, 0xAA, 0xBB];
+/// assert_eq!(
+///     parse_frame(&frame),
+///     ParseOutcome::Frame {
+///         frame: Frame { frame_type: FrameType::Telemetry, payload: &[0xAA, 0xBB] },
+///         consumed: 7,
+///     },
+/// );
+///
+/// // The header promises two payload bytes but only one has arrived.
+/// assert_eq!(parse_frame(&[0xC0, 0xFE, 0x02, 0x02, 0x00, 0xAA]), ParseOutcome::NeedMore);
+///
+/// // Two bytes of leading garbage before the magic are skipped.
+/// assert_eq!(parse_frame(&[0x11, 0x22, 0xC0, 0xFE, 0x02, 0x00, 0x00]), ParseOutcome::Resync { skip: 2 });
+/// ```
 pub fn parse_frame(buf: &[u8]) -> ParseOutcome<'_> {
     let Some(header_bytes) = buf.first_chunk::<{ Header::LEN }>() else {
         return ParseOutcome::NeedMore;
@@ -234,6 +339,10 @@ pub fn parse_frame(buf: &[u8]) -> ParseOutcome<'_> {
     }
 }
 
+/// The fixed-size frame header: magic, type, and payload length.
+///
+/// Constructed by an internal `from_bytes` that doubles as validation — it rejects unknown
+/// type bytes and lengths beyond [`MAX_PAYLOAD`].
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Header {
     frame_type: FrameType,
@@ -241,7 +350,9 @@ pub struct Header {
 }
 
 impl Header {
-    pub const LEN: usize = 5; // 2 magic + 1 type + 2 len
+    /// Header size in bytes: 2 magic + 1 type + 2 length. The single source of truth for the
+    /// header width across both ends of the link.
+    pub const LEN: usize = 5;
     const MAGIC_BYTES: [u8; 2] = [0xC0, 0xFE];
 
     fn from_bytes(bytes: &[u8; Self::LEN]) -> Option<Self> {
@@ -262,6 +373,22 @@ fn find_magic(buf: &[u8]) -> Option<usize> {
     buf.windows(2).position(|w| w == Header::MAGIC_BYTES)
 }
 
+/// Serializes a `[header][payload]` frame into `out`, returning the number of bytes written.
+///
+/// Returns `None` if `out` cannot hold the whole frame ([`Header::LEN`] + `payload.len()`).
+///
+/// # Example
+///
+/// ```
+/// use pedalbox_telemetry::wire_protocol::{write_frame, FrameType};
+///
+/// let mut out = [0u8; 16];
+/// let len = write_frame(FrameType::Telemetry, &[0xAA, 0xBB], &mut out).unwrap();
+/// assert_eq!(&out[..len], &[0xC0, 0xFE, 0x02, 0x02, 0x00, 0xAA, 0xBB]);
+///
+/// // A buffer too small for the frame is refused rather than truncating.
+/// assert_eq!(write_frame(FrameType::Telemetry, &[0xAA, 0xBB], &mut [0u8; 4]), None);
+/// ```
 pub fn write_frame(frame_type: FrameType, payload: &[u8], out: &mut [u8]) -> Option<usize> {
     let size_to_write = Header::LEN + payload.len();
     if size_to_write > out.len() {
@@ -273,12 +400,35 @@ pub fn write_frame(frame_type: FrameType, payload: &[u8], out: &mut [u8]) -> Opt
     Some(size_to_write)
 }
 
+/// Postcard-encodes `sample` and wraps it in a [`Telemetry`](FrameType::Telemetry) frame
+/// written into `out`, returning the number of bytes written.
+///
+/// Returns `None` if encoding fails or `out` is too small.
+///
+/// # Example
+///
+/// ```
+/// use pedalbox_telemetry::{SensorSample, Value};
+/// use pedalbox_telemetry::wire_protocol::{parse_frame, write_sensor_frame, FrameType, ParseOutcome};
+///
+/// let sample = SensorSample { timestamp_ms: 1_000, channel_id: 3, value: Value::I16(-42) };
+/// let mut out = [0u8; 32];
+/// let len = write_sensor_frame(&sample, &mut out).unwrap();
+///
+/// // The framed bytes parse back as a telemetry frame; decode the payload with
+/// // `postcard::from_bytes::<SensorSample>` to recover the original sample.
+/// match parse_frame(&out[..len]) {
+///     ParseOutcome::Frame { frame, .. } => assert_eq!(frame.frame_type, FrameType::Telemetry),
+///     other => panic!("expected a frame, got {other:?}"),
+/// }
+/// ```
 pub fn write_sensor_frame(sample: &SensorSample, out: &mut [u8]) -> Option<usize> {
     let mut payload = [0u8; MAX_SENSOR_PAYLOAD];
     let encode = postcard::to_slice(sample, &mut payload).ok()?;
     write_frame(FrameType::Telemetry, encode, out)
 }
 
+/// Builds the 5-byte frame header (`[magic][type][len LE]`) for a payload of the given length.
 pub fn frame_header(frame_type: FrameType, payload_length: usize) -> [u8; Header::LEN] {
     let payload_len = (payload_length as u16).to_le_bytes();
     [
