@@ -5,16 +5,24 @@ use defmt_decoder::{
     DecodeError, Frame, Location as DefmtLocation, Locations, StreamDecoder, Table,
 };
 use defmt_parser::{Level as DefmtLogLevel, Level};
+use pedalbox_telemetry::SensorSample;
+use pedalbox_telemetry::wire_protocol::{FrameReader, FrameType};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tracing::{debug, info, instrument, warn};
 
-/// Receives [`ConnectionEvent`]s from the serial channel, decodes defmt frames, and forwards
-/// [`LogMessage`]s to the MCAP writer.
+/// Receives [`ConnectionEvent`]s from the serial channel, deframes the byte stream, and routes
+/// each frame by type: [`Log`](FrameType::Log) payloads are defmt-decoded into [`LogMessage`]s
+/// and forwarded to the MCAP writer; [`Telemetry`](FrameType::Telemetry) payloads are decoded
+/// into [`SensorSample`]s (currently logged — a dedicated sink is pending).
 ///
-/// On [`ConnectionEvent::Reconnected`] the defmt stream decoder is reset so that stale frame
-/// state from the previous connection does not corrupt the new byte stream.
+/// A [`FrameReader`] recovers frame boundaries first so the interleaved defmt and telemetry
+/// frames are separated before decoding; feeding the composite stream straight into the defmt
+/// decoder would corrupt it.
+///
+/// On [`ConnectionEvent::Reconnected`] both the frame reader and the defmt stream decoder are
+/// reset so that stale bytes from the previous connection do not corrupt the new stream.
 ///
 /// Exits when `bytes_rx` is closed — i.e., when [`serial_port_task`] stops sending.
 #[instrument(skip_all)]
@@ -30,15 +38,30 @@ pub async fn decoder_task(
         .context("ELF contains no defmt data - was it built with defmt?")?;
 
     let mut decoder = Decoder::new(&table, elf_bytes)?;
+    let mut reader = FrameReader::new();
 
     while let Some(event) = bytes_rx.recv().await {
         match event {
             ConnectionEvent::Data(bytes) => {
-                for msg in decoder.decode(&bytes) {
-                    log_tx.send(msg).await?;
+                reader.push(&bytes);
+                while let Some(frame) = reader.next_frame() {
+                    match frame.frame_type {
+                        FrameType::Log => {
+                            for msg in decoder.decode(frame.payload) {
+                                log_tx.send(msg).await?;
+                            }
+                        }
+                        FrameType::Telemetry => match SensorSample::try_from(frame.payload) {
+                            Ok(sample) => debug!(?sample, "telemetry sample"),
+                            Err(e) => warn!("failed to decode telemetry sample: {e}"),
+                        },
+                    }
                 }
             }
-            ConnectionEvent::Reconnected => decoder.reset(&table),
+            ConnectionEvent::Reconnected => {
+                decoder.reset(&table);
+                reader = FrameReader::new();
+            }
         }
     }
     Ok(())

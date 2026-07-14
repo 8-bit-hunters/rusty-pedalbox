@@ -19,7 +19,7 @@ pedalbox_lib = { path = "../pedalbox_lib", features = ["defmt", "stm32"] }
 cortex-m = { version = "0.7.7", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt = "0.7.5"
 defmt = { version = "1.0.1" }
-defmt-rtt = { version = "1.1.0" }
+defmt-rtt = { version = "1.1.0", optional = true }
 embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread", "defmt"] }
 embassy-futures = { version = "0.1.2", features = ["defmt"] }
 embassy-sync = { version = "0.8.0", features = ["defmt"] }
@@ -33,7 +33,11 @@ hx711 = "0.6.0"
 bytemuck = { version = "1.24.0", features = ["derive"] }
 embedded-hal = { version = "0.2.7" }
 embedded-storage = "0.3.1"
-defmt-embassy-usbserial = { path = "../defmt-embassy-usbserial" }
+logging-usb-serial = { path = "../logging-usb-serial", optional = true, features = [
+    "buffersize-256",
+    "defmt-logger",
+    "usb",
+] }
 
 [profile.dev]
 debug = true
@@ -48,4 +52,10 @@ opt-level = "z"
 incremental = true
 
 [features]
+default = ["log-rtt"]
 adaptive-calibration = []
+
+# Logging backend — pick exactly one. `log-rtt` prints defmt over RTT (probe); `log-usb`
+# streams defmt + sensor telemetry over a composite USB-CDC interface.
+log-rtt = ["dep:defmt-rtt"]
+log-usb = ["dep:logging-usb-serial"]

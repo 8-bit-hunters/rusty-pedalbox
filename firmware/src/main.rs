@@ -2,10 +2,20 @@
 #![no_main]
 
 mod board;
+#[cfg(feature = "log-usb")]
+mod telemetry;
 mod usb;
 
 use core::sync::atomic::Ordering;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
+
+#[cfg(feature = "log-rtt")]
+use defmt_rtt as _;
+
+#[cfg(all(feature = "log-rtt", feature = "log-usb"))]
+compile_error!("enable only one logging backend: `log-rtt` or `log-usb`");
+#[cfg(not(any(feature = "log-rtt", feature = "log-usb")))]
+compile_error!("enable a logging backend: `log-rtt` or `log-usb`");
 
 use crate::board::Board;
 use crate::usb::{
@@ -27,6 +37,8 @@ use pedalbox_lib::fmt::warn;
 use pedalbox_lib::io_monitors::{
     AnalogMonitor, AnalogMonitorConfig, LoadCellMonitor, LoadCellMonitorConfig,
 };
+#[cfg(feature = "log-usb")]
+use telemetry::{BRAKE_RAW, CLUTCH_RAW, GAS_RAW, telemetry_task};
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -65,8 +77,22 @@ async fn main(spawner: Spawner) {
     );
     spawner.spawn(hid_task(hid_writer).expect("Failed to create hid task token"));
 
+    // Add the CDC-ACM logging interface to the same (composite) builder.
+    #[cfg(feature = "log-usb")]
+    let cdc_class = {
+        use crate::usb::CDC_STATE;
+        let cdc_state = CDC_STATE.init(embassy_usb::class::cdc_acm::State::new());
+        embassy_usb::class::cdc_acm::CdcAcmClass::new(&mut builder, cdc_state, 64)
+    };
+
     let usb = builder.build();
     spawner.spawn(usb_task(usb).expect("Failed to create usb task token"));
+
+    #[cfg(feature = "log-usb")]
+    {
+        let (cdc_sender, _cdc_receiver) = cdc_class.split();
+        spawner.spawn(logger_task(cdc_sender).expect("Failed to create logger task token"));
+    }
 
     let gas_pedal_range = FixedRange::default().min(2644).max(3700);
     let gas_pedal = AnalogMonitor::new(
@@ -76,6 +102,10 @@ async fn main(spawner: Spawner) {
             adc: Adc::new(board.gas_adc),
             pin: board.gas_potentiometer,
             output_channel: &AXIS_X,
+            #[cfg(feature = "log-usb")]
+            raw_channel: Some(&GAS_RAW),
+            #[cfg(feature = "log-rtt")]
+            raw_channel: None,
         },
     );
     spawner.spawn(input_monitor_x(gas_pedal).expect("Failed to create input monitor X task token"));
@@ -88,6 +118,10 @@ async fn main(spawner: Spawner) {
             load_cell: Hx711::new(Delay, board.brake_data, board.brake_clock)
                 .expect("Failed to create HX711 driver"),
             output_channel: &AXIS_Y,
+            #[cfg(feature = "log-usb")]
+            raw_channel: Some(&BRAKE_RAW),
+            #[cfg(feature = "log-rtt")]
+            raw_channel: None,
         },
     );
     spawner
@@ -101,10 +135,17 @@ async fn main(spawner: Spawner) {
             adc: Adc::new(board.clutch_adc),
             pin: board.clutch_potentiometer,
             output_channel: &AXIS_Z,
+            #[cfg(feature = "log-usb")]
+            raw_channel: Some(&CLUTCH_RAW),
+            #[cfg(feature = "log-rtt")]
+            raw_channel: None,
         },
     );
     spawner
         .spawn(input_monitor_z(clutch_pedal).expect("Failed to create input monitor Z task token"));
+
+    #[cfg(feature = "log-usb")]
+    spawner.spawn(telemetry_task().expect("Failed to create telemetry task token"));
 }
 
 #[embassy_executor::task]
@@ -112,6 +153,17 @@ async fn usb_task(
     mut device: embassy_usb::UsbDevice<'static, embassy_stm32::usb::Driver<'static, USB_OTG_FS>>,
 ) {
     device.run().await;
+}
+
+#[cfg(feature = "log-usb")]
+#[embassy_executor::task]
+async fn logger_task(
+    sender: embassy_usb::class::cdc_acm::Sender<
+        'static,
+        embassy_stm32::usb::Driver<'static, USB_OTG_FS>,
+    >,
+) {
+    logging_usb_serial::logger(sender).await;
 }
 
 #[embassy_executor::task]

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["firmware", "pedalbox_lib", "defmt-embassy-usbserial", "log-sniffer"]
+members = ["firmware", "pedalbox_lib", "defmt-embassy-usbserial", "log-sniffer", "logging-usb-serial", "pedalbox-telemetry"]
 default-members = ["log-sniffer", "pedalbox_lib"]
 
 [workspace.package]
